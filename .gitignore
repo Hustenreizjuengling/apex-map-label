@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (falls später Build-Tools dazukommen)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist/
+*.min.js.map
+
+# Logs
+*.log
+
+# Temp
+.tmp/
+.cache/
