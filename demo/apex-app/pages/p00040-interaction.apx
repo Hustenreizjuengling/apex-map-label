@@ -1,0 +1,194 @@
+page 40 (
+    name: Interaction
+    alias: INTERACTION
+    title: Map Label - Interaction & Links
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region controls (
+        name: Klick-Verhalten
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P40_CLICK_MODE (
+        type: selectList
+        label {
+            label: On label click
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Zoom to point' as d, 'zoom' as r from dual
+                union all select 'Show name (notification)', 'name' from dual
+                union all select 'Open OpenStreetMap (link)', 'osm' from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: Das Klick-Verhalten wird live beim Klick gelesen - umschalten genügt, kein Neuladen nötig.
+        }
+    )
+
+    region map-link (
+        name: Karte (Labels sind klickbar)
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT  1 AS id, 'Berlin'            AS name, '{"type":"Point","coordinates":[13.4050,52.5200]}' AS geojson FROM dual UNION ALL
+                SELECT  2,        'Hamburg',                  '{"type":"Point","coordinates":[9.9937,53.5511]}'            FROM dual UNION ALL
+                SELECT  3,        'München',                  '{"type":"Point","coordinates":[11.5820,48.1351]}'           FROM dual UNION ALL
+                SELECT  4,        'Köln',                     '{"type":"Point","coordinates":[6.9603,50.9375]}'            FROM dual UNION ALL
+                SELECT  5,        'Frankfurt am Main',        '{"type":"Point","coordinates":[8.6821,50.1109]}'            FROM dual UNION ALL
+                SELECT  6,        'Stuttgart',                '{"type":"Point","coordinates":[9.1829,48.7758]}'            FROM dual UNION ALL
+                SELECT  7,        'Düsseldorf',               '{"type":"Point","coordinates":[6.7735,51.2277]}'            FROM dual UNION ALL
+                SELECT  8,        'Leipzig',                  '{"type":"Point","coordinates":[12.3731,51.3397]}'           FROM dual UNION ALL
+                SELECT  9,        'Dresden',                  '{"type":"Point","coordinates":[13.7373,51.0504]}'           FROM dual UNION ALL
+                SELECT 10,        'Hannover',                 '{"type":"Point","coordinates":[9.7320,52.3759]}'            FROM dual
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_LINK
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            zoomLevel: 6
+        }
+
+        layer cities (
+            name: Cities
+            label {
+                label: Cities
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-map-marker
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    process set-defaults (
+        name: Set defaults
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P40_CLICK_MODE := coalesce(:P40_CLICK_MODE, 'zoom');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-link
+        }
+
+        action init-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    // onClick liest den aktuellen Modus live - Umschalten ohne Neu-Init.
+                    window.linkLabels = apexMapLabel({
+                      regionId: 'MAP_LINK', layerName: 'Cities', column: 'NAME',
+                      hideTooltip: true, debug: true, cursor: 'pointer',
+                      onClick: function (feature) {
+                        var mode = apex.item('P40_CLICK_MODE').getValue();
+                        var name = (feature && feature.properties) ? feature.properties.label : '';
+                        if (mode === 'osm') {
+                          window.open('https://www.openstreetmap.org/search?query=' + encodeURIComponent(name), '_blank');
+                        } else if (mode === 'zoom') {
+                          var m = window.linkLabels.getMap();
+                          if (m && feature.geometry) { m.flyTo({ center: feature.geometry.coordinates, zoom: Math.max(m.getZoom(), 9) }); }
+                        } else {
+                          apex.message.showPageSuccess('Klick: ' + name);
+                        }
+                      }
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

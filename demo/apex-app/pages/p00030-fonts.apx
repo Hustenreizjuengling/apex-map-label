@@ -1,0 +1,238 @@
+page 30 (
+    name: Fonts
+    alias: FONTS
+    title: Map Label - Fonts
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region controls (
+        name: Schriftart
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P30_FONT (
+        type: selectList
+        label {
+            label: Font
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Auto-detect (Style-Default)' as d, '' as r from dual
+                union all select 'Open Sans Regular',  'Open Sans Regular'  from dual
+                union all select 'Open Sans Bold',     'Open Sans Bold'     from dual
+                union all select 'Open Sans Semibold', 'Open Sans Semibold' from dual
+                union all select 'Noto Sans Regular',  'Noto Sans Regular'  from dual
+                union all select 'Roboto Regular',     'Roboto Regular'     from dual
+                union all select 'Roboto Medium',      'Roboto Medium'      from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: Welche Fonts wirklich verfügbar sind, hängt vom Glyph-Endpoint des verwendeten Map-Styles ab. Nicht vorhandene Fonts fallen leer aus - dann eine andere wählen.
+        }
+    )
+
+    pageItem P30_TEXT_SIZE (
+        type: numberField
+        label {
+            label: Text size (px)
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    region map-font (
+        name: Vorschau
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT  1 AS id, 'Berlin'            AS name, '{"type":"Point","coordinates":[13.4050,52.5200]}' AS geojson FROM dual UNION ALL
+                SELECT  2,        'Hamburg',                  '{"type":"Point","coordinates":[9.9937,53.5511]}'            FROM dual UNION ALL
+                SELECT  3,        'München',                  '{"type":"Point","coordinates":[11.5820,48.1351]}'           FROM dual UNION ALL
+                SELECT  4,        'Köln',                     '{"type":"Point","coordinates":[6.9603,50.9375]}'            FROM dual UNION ALL
+                SELECT  5,        'Frankfurt am Main',        '{"type":"Point","coordinates":[8.6821,50.1109]}'            FROM dual UNION ALL
+                SELECT  6,        'Stuttgart',                '{"type":"Point","coordinates":[9.1829,48.7758]}'            FROM dual UNION ALL
+                SELECT  7,        'Düsseldorf',               '{"type":"Point","coordinates":[6.7735,51.2277]}'            FROM dual UNION ALL
+                SELECT  8,        'Leipzig',                  '{"type":"Point","coordinates":[12.3731,51.3397]}'           FROM dual UNION ALL
+                SELECT  9,        'Dresden',                  '{"type":"Point","coordinates":[13.7373,51.0504]}'           FROM dual UNION ALL
+                SELECT 10,        'Hannover',                 '{"type":"Point","coordinates":[9.7320,52.3759]}'            FROM dual
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_FONT
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            zoomLevel: 6
+        }
+
+        layer cities (
+            name: Cities
+            label {
+                label: Cities
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-map-marker
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    process set-defaults (
+        name: Set defaults
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P30_TEXT_SIZE := coalesce(:P30_TEXT_SIZE, '16');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-font
+        }
+
+        action init-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    var f = apex.item('P30_FONT').getValue();
+                    var s = parseFloat(apex.item('P30_TEXT_SIZE').getValue()) || 16;
+                    window.fontLabels = apexMapLabel({
+                      regionId: 'MAP_FONT', layerName: 'Cities', column: 'NAME',
+                      hideTooltip: true, debug: true,
+                      textSize: s,
+                      font: f ? [f] : null
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-apply (
+        name: Apply font
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P30_FONT,P30_TEXT_SIZE
+        }
+
+        action apply-font (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    if (window.fontLabels) {
+                      var f = apex.item('P30_FONT').getValue();
+                      window.fontLabels.setOptions({
+                        font: f ? [f] : null,
+                        textSize: parseFloat(apex.item('P30_TEXT_SIZE').getValue()) || 16
+                      });
+                    }
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

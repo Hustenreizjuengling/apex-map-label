@@ -92,5 +92,65 @@ list navigation-menu (
         }
     )
 
+    entry playground (
+        label: Playground
+        icon {
+            imageIconCssClasses: fa-sliders
+        }
+        layout {
+            sequence: 30
+        }
+        link {
+            target: {
+                page: 20
+            }
+        }
+    )
+
+    entry fonts (
+        label: Fonts
+        icon {
+            imageIconCssClasses: fa-font
+        }
+        layout {
+            sequence: 40
+        }
+        link {
+            target: {
+                page: 30
+            }
+        }
+    )
+
+    entry interaction (
+        label: Interaction & Links
+        icon {
+            imageIconCssClasses: fa-hand-pointer-o
+        }
+        layout {
+            sequence: 50
+        }
+        link {
+            target: {
+                page: 40
+            }
+        }
+    )
+
+    entry performance (
+        label: Performance
+        icon {
+            imageIconCssClasses: fa-tachometer
+        }
+        layout {
+            sequence: 60
+        }
+        link {
+            target: {
+                page: 50
+            }
+        }
+    )
+
 )
 

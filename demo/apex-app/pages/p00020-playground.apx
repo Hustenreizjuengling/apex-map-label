@@ -1,0 +1,430 @@
+page 20 (
+    name: Playground
+    alias: PLAYGROUND
+    title: Map Label - Playground
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Liest die aktuellen Steuer-Items und baut daraus das Options-Objekt
+            // fuer apex-map-label. Wird vom Init- und vom Change-Handler genutzt.
+            function pgReadOpts() {
+              var num = function (id, d) { var v = parseFloat(apex.item(id).getValue()); return isNaN(v) ? d : v; };
+              var str = function (id, d) { var v = apex.item(id).getValue(); return v ? v : d; };
+              return {
+                textSize:      num('P20_TEXT_SIZE', 13),
+                textColor:     str('P20_TEXT_COLOR', '#1f2937'),
+                haloColor:     str('P20_HALO_COLOR', '#ffffff'),
+                haloWidth:     num('P20_HALO_WIDTH', 2),
+                position:      str('P20_POSITION', 'top'),
+                offsetPx:      num('P20_OFFSET_PX', 14),
+                textTransform: str('P20_TEXT_TRANSFORM', 'none'),
+                textJustify:   str('P20_TEXT_JUSTIFY', 'center'),
+                letterSpacing: num('P20_LETTER_SPACING', 0),
+                maxWidth:      num('P20_MAX_WIDTH', 12),
+                allowOverlap:  apex.item('P20_ALLOW_OVERLAP').getValue() === 'Y'
+              };
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region controls (
+        name: Formatierung
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P20_TEXT_SIZE (
+        type: numberField
+        label {
+            label: Text size (px)
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_TEXT_COLOR (
+        type: colorPicker
+        label {
+            label: Text color
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_HALO_COLOR (
+        type: colorPicker
+        label {
+            label: Halo color
+        }
+        layout {
+            sequence: 30
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_HALO_WIDTH (
+        type: numberField
+        label {
+            label: Halo width
+        }
+        layout {
+            sequence: 40
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_POSITION (
+        type: selectList
+        label {
+            label: Position
+        }
+        layout {
+            sequence: 50
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Top' as d, 'top' as r from dual
+                union all select 'Bottom', 'bottom' from dual
+                union all select 'Left', 'left' from dual
+                union all select 'Right', 'right' from dual
+                union all select 'Center', 'center' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P20_OFFSET_PX (
+        type: numberField
+        label {
+            label: Offset (px)
+        }
+        layout {
+            sequence: 60
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_TEXT_TRANSFORM (
+        type: selectList
+        label {
+            label: Transform
+        }
+        layout {
+            sequence: 70
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'None' as d, 'none' as r from dual
+                union all select 'UPPERCASE', 'uppercase' from dual
+                union all select 'lowercase', 'lowercase' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P20_TEXT_JUSTIFY (
+        type: selectList
+        label {
+            label: Justify
+        }
+        layout {
+            sequence: 80
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Auto' as d, 'auto' as r from dual
+                union all select 'Left', 'left' from dual
+                union all select 'Center', 'center' from dual
+                union all select 'Right', 'right' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P20_LETTER_SPACING (
+        type: numberField
+        label {
+            label: Letter spacing (em)
+        }
+        layout {
+            sequence: 90
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_MAX_WIDTH (
+        type: numberField
+        label {
+            label: Max width (em)
+        }
+        layout {
+            sequence: 100
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P20_ALLOW_OVERLAP (
+        type: selectList
+        label {
+            label: Allow overlap
+        }
+        layout {
+            sequence: 110
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'No' as d, 'N' as r from dual
+                union all select 'Yes', 'Y' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    region map-pg (
+        name: Vorschau
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT  1 AS id, 'Berlin'            AS name, '{"type":"Point","coordinates":[13.4050,52.5200]}' AS geojson FROM dual UNION ALL
+                SELECT  2,        'Hamburg',                  '{"type":"Point","coordinates":[9.9937,53.5511]}'            FROM dual UNION ALL
+                SELECT  3,        'München',                  '{"type":"Point","coordinates":[11.5820,48.1351]}'           FROM dual UNION ALL
+                SELECT  4,        'Köln',                     '{"type":"Point","coordinates":[6.9603,50.9375]}'            FROM dual UNION ALL
+                SELECT  5,        'Frankfurt am Main',        '{"type":"Point","coordinates":[8.6821,50.1109]}'            FROM dual UNION ALL
+                SELECT  6,        'Stuttgart',                '{"type":"Point","coordinates":[9.1829,48.7758]}'            FROM dual UNION ALL
+                SELECT  7,        'Düsseldorf',               '{"type":"Point","coordinates":[6.7735,51.2277]}'            FROM dual UNION ALL
+                SELECT  8,        'Leipzig',                  '{"type":"Point","coordinates":[12.3731,51.3397]}'           FROM dual UNION ALL
+                SELECT  9,        'Dortmund',                 '{"type":"Point","coordinates":[7.4653,51.5136]}'            FROM dual UNION ALL
+                SELECT 10,        'Dresden',                  '{"type":"Point","coordinates":[13.7373,51.0504]}'           FROM dual UNION ALL
+                SELECT 11,        'Hannover',                 '{"type":"Point","coordinates":[9.7320,52.3759]}'            FROM dual UNION ALL
+                SELECT 12,        'Nürnberg',                 '{"type":"Point","coordinates":[11.0767,49.4521]}'           FROM dual UNION ALL
+                SELECT 13,        'Bremen',                   '{"type":"Point","coordinates":[8.8017,53.0793]}'            FROM dual
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_PG
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            zoomLevel: 6
+        }
+
+        layer cities (
+            name: Cities
+            label {
+                label: Cities
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-map-marker
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    process set-defaults (
+        name: Set control defaults
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P20_TEXT_SIZE      := coalesce(:P20_TEXT_SIZE, '13');
+                  :P20_TEXT_COLOR     := coalesce(:P20_TEXT_COLOR, '#1f2937');
+                  :P20_HALO_COLOR     := coalesce(:P20_HALO_COLOR, '#ffffff');
+                  :P20_HALO_WIDTH     := coalesce(:P20_HALO_WIDTH, '2');
+                  :P20_POSITION       := coalesce(:P20_POSITION, 'top');
+                  :P20_OFFSET_PX      := coalesce(:P20_OFFSET_PX, '14');
+                  :P20_TEXT_TRANSFORM := coalesce(:P20_TEXT_TRANSFORM, 'none');
+                  :P20_TEXT_JUSTIFY   := coalesce(:P20_TEXT_JUSTIFY, 'center');
+                  :P20_LETTER_SPACING := coalesce(:P20_LETTER_SPACING, '0');
+                  :P20_MAX_WIDTH      := coalesce(:P20_MAX_WIDTH, '12');
+                  :P20_ALLOW_OVERLAP  := coalesce(:P20_ALLOW_OVERLAP, 'N');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-pg
+        }
+
+        action init-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    window.pgLabels = apexMapLabel(Object.assign(
+                      { regionId: 'MAP_PG', layerName: 'Cities', column: 'NAME', hideTooltip: true, debug: true },
+                      pgReadOpts()
+                    ));
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-apply (
+        name: Apply options
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P20_TEXT_SIZE,P20_TEXT_COLOR,P20_HALO_COLOR,P20_HALO_WIDTH,P20_POSITION,P20_OFFSET_PX,P20_TEXT_TRANSFORM,P20_TEXT_JUSTIFY,P20_LETTER_SPACING,P20_MAX_WIDTH,P20_ALLOW_OVERLAP
+        }
+
+        action apply-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    if (window.pgLabels) { window.pgLabels.setOptions(pgReadOpts()); }
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

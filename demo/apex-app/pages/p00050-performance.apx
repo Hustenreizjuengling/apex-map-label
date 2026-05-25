@@ -1,0 +1,265 @@
+page 50 (
+    name: Performance
+    alias: PERFORMANCE
+    title: Map Label - Performance
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region controls (
+        name: Last-Test
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P50_POINT_COUNT (
+        type: selectList
+        label {
+            label: Number of points
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select '100' as d, '100' as r from dual
+                union all select '500', '500' from dual
+                union all select '1.000', '1000' from dual
+                union all select '5.000', '5000' from dual
+                union all select '10.000', '10000' from dual
+                union all select '25.000', '25000' from dual
+                union all select '50.000', '50000' from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: Erzeugt so viele zufällige Punkte im Deutschland-Umkreis. Testet, ob apex-map-label das Laden aussitzt (v2.1 Stall-Timeout) und wie schnell gerendert wird.
+        }
+    )
+
+    pageItem P50_COUNT (
+        type: displayOnly
+        label {
+            label: Rendered labels
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P50_TIME (
+        type: displayOnly
+        label {
+            label: Build time (ms)
+        }
+        layout {
+            sequence: 30
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    region map-perf (
+        name: Karte
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select level as id,
+                       'P' || level as name,
+                       '{"type":"Point","coordinates":[' ||
+                         replace(to_char(round(5.9 + dbms_random.value * 9.1, 5)), ',', '.') || ',' ||
+                         replace(to_char(round(47.3 + dbms_random.value * 7.7, 5)), ',', '.') ||
+                       ']}' as geojson
+                  from dual
+                connect by level <= :P50_POINT_COUNT
+                ```
+            pageItemsToSubmit: P50_POINT_COUNT
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_PERF
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            zoomLevel: 6
+        }
+
+        layer points (
+            name: Points
+            label {
+                label: Points
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-circle
+            }
+            appearance {
+                fillColor: #16a34a
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    process set-defaults (
+        name: Set defaults
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P50_POINT_COUNT := coalesce(:P50_POINT_COUNT, '1000');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-perf
+        }
+
+        action init-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    window.perfStart = performance.now();
+                    window.perfLabels = apexMapLabel({
+                      regionId: 'MAP_PERF', layerName: 'Points', column: 'NAME',
+                      hideTooltip: true, debug: true, allowOverlap: false,
+                      onUpdate: function (count) {
+                        apex.item('P50_COUNT').setValue(count);
+                        if (window.perfStart) {
+                          apex.item('P50_TIME').setValue(Math.round(performance.now() - window.perfStart));
+                          window.perfStart = null;
+                        }
+                      }
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-reload (
+        name: Reload points
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P50_POINT_COUNT
+        }
+
+        action mark-start (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    window.perfStart = performance.now();
+                    apex.item('P50_COUNT').setValue('…');
+                    apex.item('P50_TIME').setValue('…');
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-map (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @map-perf
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

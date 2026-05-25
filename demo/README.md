@@ -1,8 +1,18 @@
 # Map Label Demo (APEX 26.1 / APEXLang)
 
-Eine kleine, selbstständige APEX-Anwendung zum Testen der `apex-map-label`-Library.
-Sie zeigt eine Map-Region mit ~13 deutschen Städten (Inline-SQL, keine Tabelle
-nötig) und beschriftet jeden Punkt über die Library.
+Ein selbstständiges APEX-Toolkit zum Erkunden der `apex-map-label`-Library:
+13 deutsche Städte (Inline-SQL, keine Tabelle nötig) plus interaktive Seiten für
+Formatierung, Fonts, Interaktion/Links und einen Performance-Test.
+
+## Seiten / Toolkit
+
+| Seite | Was sie demonstriert |
+|-------|----------------------|
+| **10 · Map Label Demo** | Minimalbeispiel – „es funktioniert einfach". |
+| **20 · Playground** | Live-Tuning per Page-Items: `textSize`, `textColor`, `haloColor/Width`, `position`, `offsetPx`, `textTransform`, `textJustify`, `letterSpacing`, `maxWidth`, `allowOverlap` → `setOptions()` bei jeder Änderung. |
+| **30 · Fonts** | `font`-Option live umschalten (Open Sans, Noto, Roboto … bzw. Auto-Detect). |
+| **40 · Interaction & Links** | `onClick`: Zoom zum Punkt, Namen als Notification, oder OpenStreetMap-Link öffnen. |
+| **50 · Performance** | 100–50.000 zufällige Punkte generieren (`CONNECT BY`), Label-Count + Build-Zeit messen. Testet den v2.1 Stall-Timeout/Performance-Fix. |
 
 ## Inhalt
 
@@ -15,12 +25,16 @@ demo/
 ├── pages/
 │   ├── p00000-global-page.apx
 │   ├── p00001-home.apx
-│   ├── p00010-map-demo.apx             Die Map-Page (Static ID MAP_DEMO, Layer Cities)
+│   ├── p00010-map-demo.apx             Minimal-Demo (Static ID MAP_DEMO)
+│   ├── p00020-playground.apx           Live-Formatierung
+│   ├── p00030-fonts.apx                Font-Umschalter
+│   ├── p00040-interaction.apx          onClick / Links
+│   ├── p00050-performance.apx          Random-Punkte / Last-Test
 │   └── p09999-login.apx
 └── shared-components/
     ├── static-files.apx                deklariert apex_map_label.js
     ├── static-files/apex_map_label.js  Kopie der Library (v2.1.0)
-    ├── lists.apx                        Navigations-Eintrag "Map Label Demo"
+    ├── lists.apx                        Navigations-Einträge aller Seiten
     └── … (Theme, Auth etc. aus dem Standard-Scaffold)
 ```
 
