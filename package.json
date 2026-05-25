@@ -1,6 +1,6 @@
 {
   "name": "apex-map-label",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Always-on Labels for Oracle APEX Map Regions. Performant native symbol-layer rendering, compatible with Mapbox GL JS and MapLibre GL JS.",
   "main": "src/apex_map_label.js",
   "files": [

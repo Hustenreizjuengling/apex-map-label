@@ -47,7 +47,7 @@ APEX Map Regions speichern Spaltenwerte als JSON-String in den Feature-Propertie
 
 Die Library löst das so:
 
-1. **Wartet**, bis APEX die Map UND den gewünschten Layer im Style registriert hat (Polling).
+1. **Wartet** event-getrieben, bis APEX die Map UND den gewünschten Layer im Style registriert hat – mit Stall-Timeout, der langes Daten-Laden aussitzt (siehe [Performance-Hinweise](#performance-hinweise)).
 2. **Liest** die Features per `querySourceFeatures()` aus dem APEX-Layer.
 3. **Extrahiert** den Label-Text aus Tooltip-JSON / InfoWindow-JSON / direkter Property.
 4. **Erzeugt** eine parallele GeoJSON-Source mit Punkten + Label-Property.
@@ -332,7 +332,7 @@ Hauptfunktion. Gibt ein Controller-Objekt zurück.
 
 | Option | Typ | Default | Beschreibung |
 |---|---|---|---|
-| `waitTimeoutMs` | `number` | `10000` | Max. Wartezeit auf Map+Layer |
+| `waitTimeoutMs` | `number` | `10000` | Stall-Timeout: Abbruch erst nach so vielen ms **ohne Fortschritt** (nicht absolut – langes Daten-Laden wird ausgesessen) |
 | `debug` | `boolean` | `false` | Console-Logs |
 
 #### Return-Object (Controller)
@@ -501,15 +501,16 @@ Du hast einen der beiden Parameter vergessen oder als leerer String übergeben.
 - Static ID stimmt nicht mit der Region überein – Page Designer öffnen, Region anklicken, **Advanced → Static ID** prüfen.
 - Du rufst die Funktion auf einer Seite ohne die Map-Region auf.
 
-### `[apexMapLabel] Map object not available after 10000ms`
+### `[apexMapLabel] Map object not available (no progress for 10000ms)`
 
 Die DA feuert zu früh. Prüfe:
 1. **Event** ist `Map Initialized [Map]` (nicht „Page Load"!)
 2. **Selection Type** ist `Region` und die richtige Region ausgewählt.
 3. Die Map ist sichtbar (nicht in einer ausgeblendeten Tab).
-4. Bei sehr großen Datasets: `waitTimeoutMs: 30000` setzen.
 
-### `[apexMapLabel] Layer "..." not found within 10000ms`
+### `[apexMapLabel] Layer "..." never appeared ...`
+
+Die Map ist zur Ruhe gekommen (idle), ohne dass der Layer je im Style auftauchte. Das ist **kein** Ladeproblem (langes Daten-Laden wird automatisch ausgesessen) – fast immer ein falscher Name:
 
 - **Name** ist case-sensitive. Im Page Designer Layer anklicken, exakter Name oben.
 - Diagnose-Snippet in der Console:
@@ -584,6 +585,7 @@ In APEX Builder: nach JavaScript-Änderungen einmal `F5` machen, nicht nur die R
 - Change-Detection: bei identischen Daten kein erneutes `setData`
 - Cached Font-Detection
 - `querySourceFeatures` statt `queryRenderedFeatures` (alle Punkte, nicht nur sichtbar)
+- Event-getriebenes Warten mit Stall-Timeout: Regionen, deren Layer erst nach Sekunden langen Daten-Ladens erscheint, werden ausgesessen statt vorzeitig abgebrochen – `waitTimeoutMs` zählt nur Inaktivität, nicht Gesamtdauer.
 
 ---
 
@@ -633,7 +635,7 @@ Die Library ist eine **IIFE** ohne externe Abhängigkeiten. Intern:
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ normalizeOptions(cfg)      → validiert + mergt mit DEFAULTS │
-│ waitForMapAndLayer(...)    → Polling-Loop (abbrechbar)      │
+│ waitForMapAndLayer(...)    → event-getrieben + Stall-Timeout│
 │ injectScopedCSS(...)       → Tooltip-CSS injizieren         │
 └────────────────────────┬────────────────────────────────────┘
                          │ Map + Layer ready
@@ -653,7 +655,7 @@ Die Library ist eine **IIFE** ohne externe Abhängigkeiten. Intern:
 ### Wichtige Design-Entscheidungen
 
 - **Parallele GeoJSON-Source statt Reuse der APEX-Source.** Mapbox-Expressions können kein JSON parsen, deshalb müssen wir die Label-Werte in eine Top-Level-Property bringen.
-- **Polling statt Event-Listening.** APEX's `Map Initialized`-Event feuert manchmal vor dem Hinzufügen der Daten-Layer; Polling ist hier robuster als das Erraten der Event-Reihenfolge.
+- **Event-getriebenes Warten mit Stall-Timeout (+ Poll als Sicherheitsnetz).** APEX's `Map Initialized`-Event feuert manchmal vor dem Hinzufügen der Daten-Layer, und bei großen Datasets erscheint der Layer erst nach Sekunden. Wir lauschen daher auf `styledata`/`sourcedata`/`idle` und brechen erst ab, wenn die Map *zur Ruhe kommt* und der Layer fehlt – nicht nach fixer Gesamtzeit. Ein langsamer Poll fängt verpasste Events und die Phase vor dem Map-Objekt ab.
 - **Closures statt Klassen.** Kein `this`-Stress, kleinere Code-Footprint, perfekt für eine Single-File-Lib.
 - **Sentinel-Controller bei Fehlern.** `noopCtrl()` – ein Controller, dessen Methoden alle leer sind – verhindert NPE im User-Code wenn Init scheitert.
 

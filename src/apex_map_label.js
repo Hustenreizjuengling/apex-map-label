@@ -1,5 +1,5 @@
 /**
- * apex_map_label.js  ·  v2.0
+ * apex_map_label.js  ·  v2.1
  * --------------------------------------------------------------------------
  * Always-on, performante Beschriftungen für Oracle APEX Map Regions.
  *
@@ -8,7 +8,8 @@
  *   – APEX 22.1+ (MapLibre GL JS)
  *
  * Architektur in Kürze:
- *   1. Wartet bis Map + Layer wirklich verfügbar sind (Polling).
+ *   1. Wartet event-getrieben bis Map + Layer verfügbar sind
+ *      (Stall-Timeout statt fixer Deadline – übersteht langes Daten-Laden).
  *   2. Liest die APEX-Layer-Features (querySourceFeatures).
  *   3. Erzeugt eine eigene GeoJSON-Source mit den Label-Texten.
  *   4. Rendert über einen nativen Symbol-Layer (GPU, skaliert auf 1000e Points).
@@ -106,7 +107,7 @@
     hideInfoWindow:  false,        // dito InfoWindow
 
     // -- Timing / Debug
-    waitTimeoutMs:   DEFAULT_TIMEOUT_MS,
+    waitTimeoutMs:   DEFAULT_TIMEOUT_MS, // number – Abbruch nach so vielen ms OHNE Fortschritt (Stall-Timeout, nicht absolut)
     debug:           false
   });
 
@@ -280,32 +281,94 @@
   }
 
   // ==========================================================================
-  // Auf Map + Layer warten (abbrechbar)
+  // Auf Map + Layer warten (event-getrieben, abbrechbar)
+  // --------------------------------------------------------------------------
+  // Wichtig: `timeoutMs` ist KEINE absolute Deadline, sondern ein Stall-/
+  // Inaktivitäts-Timeout. Solange die Map noch Daten lädt (sourcedata-Events
+  // feuern bzw. map.loaded() === false), wird der Watchdog zurückgesetzt – wir
+  // warten beliebig lange, *solange Fortschritt da ist*. Erst wenn die Map zur
+  // Ruhe kommt und der Layer immer noch fehlt, greift nach timeoutMs der
+  // Abbruch (= dann ist es wirklich ein falscher Layer-Name, kein Ladeproblem).
+  //
+  // Das löst den Fall datenintensiver Regionen, deren Layer erst nach Sekunden
+  // im Map-Style auftaucht – die alte fixe Deadline riss hier vorzeitig ab.
   // ==========================================================================
-  function waitForMapAndLayer(region, layerName, timeoutMs, isCancelled) {
+  function waitForMapAndLayer(region, layerName, timeoutMs, isCancelled, debugLog) {
     return new Promise((resolve) => {
-      const start = Date.now();
-      let timerId = null;
+      let settled     = false;
+      let map         = null;
+      let stallTimer  = null;
+      let pollTimer   = null;
+      let lastAttempt = 0;
+      const offFns    = [];
 
-      const poll = () => {
-        if (isCancelled()) { resolve({ map: null, layerId: null, cancelled: true }); return; }
-
-        let m = null;
-        try { m = region.call('getMapObject'); } catch (_) {}
-
-        if (m) {
-          const id = resolveLayerId(region, m, layerName);
-          if (id) { resolve({ map: m, layerId: id }); return; }
-        }
-
-        if (Date.now() - start >= timeoutMs) {
-          resolve({ map: m, layerId: null });
-          return;
-        }
-
-        timerId = setTimeout(poll, POLL_INTERVAL_MS);
+      const cleanup = () => {
+        clearTimeout(stallTimer);
+        clearTimeout(pollTimer);
+        for (const off of offFns) { try { off(); } catch (_) {} }
+        offFns.length = 0;
       };
 
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      // Watchdog: feuert nur, wenn timeoutMs lang KEIN Fortschritt mehr kam.
+      const armStall = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          debugLog && debugLog(`stall timeout – ${timeoutMs}ms ohne Fortschritt, Layer nicht aufgetaucht`);
+          finish({ map: map, layerId: null });
+        }, timeoutMs);
+      };
+
+      // Versuch, Map + Layer aufzulösen (leicht gedrosselt gegen Event-Fluten).
+      const attempt = (force) => {
+        if (settled) return;
+        if (isCancelled()) { finish({ map: null, layerId: null, cancelled: true }); return; }
+
+        const now = Date.now();
+        if (!force && now - lastAttempt < 40) return;
+        lastAttempt = now;
+
+        if (!map) {
+          try { map = region.call('getMapObject'); } catch (_) {}
+          if (map) {
+            debugLog && debugLog('map object acquired – höre auf style/source-Events');
+            bindMapEvents();
+          }
+        }
+        if (map) {
+          const id = resolveLayerId(region, map, layerName);
+          if (id) { finish({ map: map, layerId: id }); return; }
+        }
+      };
+
+      // Jedes Style-/Source-Event ist (a) eine Chance, den Layer zu finden und
+      // (b) ein Zeichen von Fortschritt, das den Watchdog zurücksetzt.
+      const bindMapEvents = () => {
+        const onProgress = () => { armStall(); attempt(); };
+        for (const ev of ['styledata', 'sourcedata', 'idle']) {
+          map.on(ev, onProgress);
+          offFns.push(() => { try { map.off(ev, onProgress); } catch (_) {} });
+        }
+      };
+
+      // Langsamer Poll als Sicherheitsnetz: deckt die Phase vor dem Map-Objekt
+      // ab und fängt evtl. verpasste Events. Hält den Watchdog am Leben, solange
+      // die Map sich selbst noch als "nicht fertig geladen" meldet (z.B. bei
+      // stillem AJAX-Datenabruf ohne zwischenzeitliche map-Events).
+      const poll = () => {
+        if (settled) return;
+        attempt(true);
+        if (map && typeof map.loaded === 'function' && !map.loaded()) armStall();
+        pollTimer = setTimeout(poll, POLL_INTERVAL_MS);
+      };
+
+      armStall();
       poll();
     });
   }
@@ -418,18 +481,20 @@
     let inner      = null;         // echter Controller nach Init
     const pending  = { refresh: false, setOptions: null };
 
-    waitForMapAndLayer(region, opts.layerName, opts.waitTimeoutMs, () => cancelled).then(res => {
+    waitForMapAndLayer(region, opts.layerName, opts.waitTimeoutMs, () => cancelled, log).then(res => {
       if (cancelled) return;
 
       if (!res.map) {
-        error(`Map object not available after ${opts.waitTimeoutMs}ms. ` +
+        error(`Map object not available (no progress for ${opts.waitTimeoutMs}ms). ` +
               `Check the DA event ("Map Initialized [Map]") and Static ID.`);
         return;
       }
       if (!res.layerId) {
         const known = (region.layers || []).map(l => l.name || l.label);
         error(
-          `Layer "${opts.layerName}" not found within ${opts.waitTimeoutMs}ms.\n` +
+          `Layer "${opts.layerName}" never appeared – the map went idle for ` +
+          `${opts.waitTimeoutMs}ms without it. Likely a wrong layer name (not a ` +
+          `data-loading delay; that is now waited out automatically).\n` +
           `Known layers: ${known.length ? known.map(n => `"${n}"`).join(', ') : '(none)'}`
         );
         return;
@@ -802,7 +867,7 @@
   // ==========================================================================
   // Export
   // ==========================================================================
-  apexMapLabel.VERSION  = '2.0.0';
+  apexMapLabel.VERSION  = '2.1.0';
   apexMapLabel.DEFAULTS = DEFAULTS;
 
   global.apexMapLabel = apexMapLabel;
