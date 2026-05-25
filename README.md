@@ -2,13 +2,13 @@
 
 > Always-on Beschriftungen für Oracle APEX Map Regions – performant, flexibel, ein-Datei-Library.
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](./CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![APEX](https://img.shields.io/badge/APEX-21.2%2B-orange.svg)]()
 
 APEX Map Regions zeigen Tooltips beim Hover und Info-Windows beim Klick – aber **keine permanent sichtbaren Labels** an den Markern. Diese Library schließt diese Lücke mit einer einzigen JavaScript-Datei.
 
-![Demo Screenshot](https://via.placeholder.com/800x400?text=Map+with+labels)
+![Map Label Demo](docs/demo.png)
 
 ## Inhaltsverzeichnis
 

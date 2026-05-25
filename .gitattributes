@@ -5,3 +5,8 @@
 *.apx   text eol=lf
 *.sql   text eol=lf
 *.json  text eol=lf
+
+# Bilder immer binär behandeln (keine EOL-/Text-Konvertierung).
+*.png   binary
+*.jpg   binary
+*.gif   binary
