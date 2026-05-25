@@ -1,0 +1,136 @@
+page 10 (
+    name: Map Label Demo
+    alias: MAP-DEMO
+    title: Map Label Demo
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region map-demo (
+        name: Cities Map
+        title: Cities Map
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT  1 AS id, 'Berlin'            AS name, '{"type":"Point","coordinates":[13.4050,52.5200]}' AS geojson FROM dual UNION ALL
+                SELECT  2,        'Hamburg',                  '{"type":"Point","coordinates":[9.9937,53.5511]}'            FROM dual UNION ALL
+                SELECT  3,        'München',                  '{"type":"Point","coordinates":[11.5820,48.1351]}'           FROM dual UNION ALL
+                SELECT  4,        'Köln',                     '{"type":"Point","coordinates":[6.9603,50.9375]}'            FROM dual UNION ALL
+                SELECT  5,        'Frankfurt am Main',        '{"type":"Point","coordinates":[8.6821,50.1109]}'            FROM dual UNION ALL
+                SELECT  6,        'Stuttgart',                '{"type":"Point","coordinates":[9.1829,48.7758]}'            FROM dual UNION ALL
+                SELECT  7,        'Düsseldorf',               '{"type":"Point","coordinates":[6.7735,51.2277]}'            FROM dual UNION ALL
+                SELECT  8,        'Leipzig',                  '{"type":"Point","coordinates":[12.3731,51.3397]}'           FROM dual UNION ALL
+                SELECT  9,        'Dortmund',                 '{"type":"Point","coordinates":[7.4653,51.5136]}'            FROM dual UNION ALL
+                SELECT 10,        'Dresden',                  '{"type":"Point","coordinates":[13.7373,51.0504]}'           FROM dual UNION ALL
+                SELECT 11,        'Hannover',                 '{"type":"Point","coordinates":[9.7320,52.3759]}'            FROM dual UNION ALL
+                SELECT 12,        'Nürnberg',                 '{"type":"Point","coordinates":[11.0767,49.4521]}'           FROM dual UNION ALL
+                SELECT 13,        'Bremen',                   '{"type":"Point","coordinates":[8.8017,53.0793]}'            FROM dual
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_DEMO
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            zoomLevel: 6
+        }
+
+        layer cities (
+            name: Cities
+            label {
+                label: Cities
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-map-marker
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    dynamicAction init-labels (
+        name: Init Labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-demo
+        }
+
+        action init-map-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    // apex-map-label v2.1 – Beschriftungen aus der Tooltip-Spalte NAME.
+                    window.cityLabels = apexMapLabel({
+                      regionId:    'MAP_DEMO',
+                      layerName:   'Cities',
+                      column:      'NAME',
+                      position:    'top',
+                      offsetPx:    14,
+                      hideTooltip: true,
+                      textSize:    13,
+                      haloColor:   '#ffffff',
+                      haloWidth:   2.5,
+                      debug:       true
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

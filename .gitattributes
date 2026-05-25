@@ -1,0 +1,7 @@
+# APEXLang-Quelldateien MÜSSEN LF-Zeilenenden haben – der APEXLang-Compiler
+# (ANTLR-Lexer) lehnt das CR aus Windows-CRLF als ungültiges Token ab
+# ("token recognition error at: '\r\n'"). Diese Regel verhindert, dass Git die
+# Dateien beim Checkout auf Windows in CRLF umwandelt.
+*.apx   text eol=lf
+*.sql   text eol=lf
+*.json  text eol=lf
