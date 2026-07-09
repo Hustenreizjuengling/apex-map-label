@@ -17,11 +17,24 @@ page 60 (
             function clReadOpts() {
               var num = function (id, d) { var v = parseFloat(apex.item(id).getValue()); return isNaN(v) ? d : v; };
               var str = function (id, d) { var v = apex.item(id).getValue(); return v ? v : d; };
+              var mode = apex.item('P60_CLUSTER_FORMAT').getValue() || 'COUNT';
+              var clusterLabel = false;
+              if (mode === 'COUNT') { clusterLabel = true; }
+              else if (mode === 'TEXT') {
+                clusterLabel = function (f) { return f.properties.point_count + ' Orte'; };
+              }
               return {
-                clusterLabel: apex.item('P60_CLUSTER_LABEL').getValue() === 'Y',
-                textSize:     num('P60_TEXT_SIZE', 13),
-                textColor:    str('P60_TEXT_COLOR', '#1f2937'),
-                position:     str('P60_POSITION', 'top')
+                clusterLabel:  clusterLabel,
+                position:      str('P60_POSITION', 'top'),
+                offsetPx:      num('P60_OFFSET_PX', 14),
+                textSize:      num('P60_TEXT_SIZE', 13),
+                textColor:     str('P60_TEXT_COLOR', '#1f2937'),
+                haloColor:     str('P60_HALO_COLOR', '#ffffff'),
+                haloWidth:     num('P60_HALO_WIDTH', 2),
+                textTransform: str('P60_TEXT_TRANSFORM', 'none'),
+                letterSpacing: num('P60_LETTER_SPACING', 0),
+                maxWidth:      num('P60_MAX_WIDTH', 12),
+                allowOverlap:  apex.item('P60_ALLOW_OVERLAP').getValue() === 'Y'
               };
             }
             ```
@@ -38,9 +51,10 @@ page 60 (
             htmlCode:
                 ```html
                 <p>Der Layer hat <strong>Point Clustering</strong> aktiviert. Mit
-                <code>clusterLabel: true</code> beschriftet apex-map-label die Cluster mit ihrer
-                Punktanzahl (<code>point_count</code>), Einzelpunkte bekommen weiterhin ihr normales
-                Label. Heraus- und hineinzoomen, um Cluster entstehen und zerfallen zu sehen.</p>
+                <code>clusterLabel</code> beschriftet apex-map-label die Cluster – wahlweise mit
+                der Punktanzahl (<code>true</code>) oder per eigener Format-Funktion
+                (z. B. "12 Orte"). Einzelpunkte bekommen weiterhin ihr normales Label.
+                Heraus- und hineinzoomen, um Cluster entstehen und zerfallen zu sehen.</p>
                 <p><strong>Hinweis:</strong> APEX 26.1 hat einen Bug, durch den Cluster-Layer gar
                 nicht erst gerendert werden (MapLibre lehnt die Source ab: "cluster: boolean
                 expected, object found"). Diese Seite nutzt den Workaround
@@ -70,7 +84,7 @@ page 60 (
         }
     )
 
-    pageItem P60_CLUSTER_LABEL (
+    pageItem P60_CLUSTER_FORMAT (
         type: selectList
         label {
             label: Cluster labels
@@ -87,17 +101,18 @@ page 60 (
             type: sqlQuery
             sqlQuery:
                 ```sql
-                select 'On (Anzahl anzeigen)' as d, 'Y' as r from dual
-                union all select 'Off (Cluster ohne Label)', 'N' from dual
+                select 'Anzahl (point_count)' as d, 'COUNT' as r from dual
+                union all select 'Eigenes Format ("N Orte")', 'TEXT' from dual
+                union all select 'Aus (Cluster ohne Label)', 'OFF' from dual
                 ```
             displayNullValue: false
         }
     )
 
-    pageItem P60_TEXT_SIZE (
-        type: numberField
+    pageItem P60_POSITION (
+        type: selectList
         label {
-            label: Text size (px)
+            label: Position
         }
         layout {
             sequence: 20
@@ -108,12 +123,24 @@ page 60 (
         appearance {
             template: @/optional-floating
         }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Top' as d, 'top' as r from dual
+                union all select 'Bottom', 'bottom' from dual
+                union all select 'Left', 'left' from dual
+                union all select 'Right', 'right' from dual
+                union all select 'Center', 'center' from dual
+                ```
+            displayNullValue: false
+        }
     )
 
-    pageItem P60_TEXT_COLOR (
-        type: colorPicker
+    pageItem P60_OFFSET_PX (
+        type: numberField
         label {
-            label: Text color
+            label: Offset (px)
         }
         layout {
             sequence: 30
@@ -126,10 +153,10 @@ page 60 (
         }
     )
 
-    pageItem P60_POSITION (
+    pageItem P60_ALLOW_OVERLAP (
         type: selectList
         label {
-            label: Position
+            label: Allow overlap
         }
         layout {
             sequence: 40
@@ -144,11 +171,130 @@ page 60 (
             type: sqlQuery
             sqlQuery:
                 ```sql
-                select 'Top' as d, 'top' as r from dual
-                union all select 'Bottom', 'bottom' from dual
-                union all select 'Center', 'center' from dual
+                select 'No' as d, 'N' as r from dual
+                union all select 'Yes', 'Y' from dual
                 ```
             displayNullValue: false
+        }
+    )
+
+    pageItem P60_TEXT_SIZE (
+        type: numberField
+        label {
+            label: Text size (px)
+        }
+        layout {
+            sequence: 50
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_TEXT_COLOR (
+        type: colorPicker
+        label {
+            label: Text color
+        }
+        layout {
+            sequence: 60
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_HALO_COLOR (
+        type: colorPicker
+        label {
+            label: Halo color
+        }
+        layout {
+            sequence: 70
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_HALO_WIDTH (
+        type: numberField
+        label {
+            label: Halo width
+        }
+        layout {
+            sequence: 80
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_TEXT_TRANSFORM (
+        type: selectList
+        label {
+            label: Transform
+        }
+        layout {
+            sequence: 90
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'None' as d, 'none' as r from dual
+                union all select 'UPPERCASE', 'uppercase' from dual
+                union all select 'lowercase', 'lowercase' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P60_LETTER_SPACING (
+        type: numberField
+        label {
+            label: Letter spacing (em)
+        }
+        layout {
+            sequence: 100
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_MAX_WIDTH (
+        type: numberField
+        label {
+            label: Max width (em)
+        }
+        layout {
+            sequence: 110
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
         }
     )
 
@@ -264,10 +410,17 @@ page 60 (
             plsqlCode:
                 ```plsql
                 begin
-                  :P60_CLUSTER_LABEL := coalesce(:P60_CLUSTER_LABEL, 'Y');
-                  :P60_TEXT_SIZE     := coalesce(:P60_TEXT_SIZE, '13');
-                  :P60_TEXT_COLOR    := coalesce(:P60_TEXT_COLOR, '#1f2937');
-                  :P60_POSITION      := coalesce(:P60_POSITION, 'top');
+                  :P60_CLUSTER_FORMAT := coalesce(:P60_CLUSTER_FORMAT, 'COUNT');
+                  :P60_POSITION       := coalesce(:P60_POSITION, 'top');
+                  :P60_OFFSET_PX      := coalesce(:P60_OFFSET_PX, '14');
+                  :P60_ALLOW_OVERLAP  := coalesce(:P60_ALLOW_OVERLAP, 'N');
+                  :P60_TEXT_SIZE      := coalesce(:P60_TEXT_SIZE, '13');
+                  :P60_TEXT_COLOR     := coalesce(:P60_TEXT_COLOR, '#1f2937');
+                  :P60_HALO_COLOR     := coalesce(:P60_HALO_COLOR, '#ffffff');
+                  :P60_HALO_WIDTH     := coalesce(:P60_HALO_WIDTH, '2');
+                  :P60_TEXT_TRANSFORM := coalesce(:P60_TEXT_TRANSFORM, 'none');
+                  :P60_LETTER_SPACING := coalesce(:P60_LETTER_SPACING, '0');
+                  :P60_MAX_WIDTH      := coalesce(:P60_MAX_WIDTH, '12');
                 end;
                 ```
         }
@@ -327,7 +480,7 @@ page 60 (
         when {
             event: change
             selectionType: items
-            items: P60_CLUSTER_LABEL,P60_TEXT_SIZE,P60_TEXT_COLOR,P60_POSITION
+            items: P60_CLUSTER_FORMAT,P60_POSITION,P60_OFFSET_PX,P60_ALLOW_OVERLAP,P60_TEXT_SIZE,P60_TEXT_COLOR,P60_HALO_COLOR,P60_HALO_WIDTH,P60_TEXT_TRANSFORM,P60_LETTER_SPACING,P60_MAX_WIDTH
         }
 
         action apply-label (

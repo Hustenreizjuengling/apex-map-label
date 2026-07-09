@@ -31,5 +31,93 @@ page 1 (
         }
     )
 
-)
+    region about (
+        name: apex-map-label
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <p><strong>Always-on Beschriftungen für Oracle APEX Map Regions</strong> –
+                performant, flexibel, eine JavaScript-Datei. APEX Map Regions zeigen Tooltips
+                beim Hover und Info-Windows beim Klick, aber keine permanent sichtbaren Labels
+                an den Markern. Diese Library schließt die Lücke:</p>
+                <ul>
+                  <li>🚀 <strong>GPU-gerendert</strong> – nativer Symbol-Layer statt DOM-Marker,
+                      skaliert auf tausende Punkte</li>
+                  <li>🔧 <strong>Flexible Label-Quelle</strong> – Spalte, Tooltip, InfoWindow
+                      oder eigene Format-Funktion</li>
+                  <li>📍 <strong>Alle Geometrien</strong> – Punkte, Linien (Label folgt dem
+                      Verlauf: über/auf/unter der Linie), Polygone, Cluster (mit Anzahl)</li>
+                  <li>🎨 <strong>Live umkonfigurierbar</strong> – <code>setOptions()</code>
+                      ändert jeden Aspekt ohne Reload; data-driven Farben per
+                      Mapbox-Expressions</li>
+                  <li>🔁 <strong>Auto-Refresh</strong> – Labels ziehen bei Region-Refreshes
+                      automatisch nach, ohne extra Dynamic Action</li>
+                  <li>🛡️ <strong>Robust</strong> – event-getriebenes Warten auf Map + Layer,
+                      sauberes Cleanup, Workaround für den APEX-26.1-Clustering-Bug inklusive</li>
+                </ul>
+                <p><strong>Quick Start:</strong> <code>apex_map_label.js</code> als Static
+                Application File hochladen, per
+                <code>&#35;APP_FILES&#35;apex_map_label.js</code> einbinden und in einer
+                "Map&nbsp;Initialized"-Dynamic-Action aufrufen:</p>
+                <pre><code>apexMapLabel({
+  regionId:  'MY_MAP',
+  layerName: 'Stations',
+  column:    'NAME',
+  hideTooltip: true
+});</code></pre>
+                <p>Oder bequemer: Der <strong>Code-Generator</strong> (Menüpunkt links) stellt
+                alle Optionen interaktiv ein – auch für mehrere Layer – und liefert das fertige
+                Init-Script samt Anleitung.</p>
+                <p>📦 Quellcode, vollständige README und Changelog:
+                <a href="https://github.com/Hustenreizjuengling/apex-map-label" target="_blank"
+                   rel="noopener noreferrer">
+                   <strong>github.com/Hustenreizjuengling/apex-map-label</strong></a></p>
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
 
+    region pages (
+        name: Toolkit-Seiten
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <ul>
+                  <li><strong>Map Label Demo</strong> – Minimalbeispiel: Karte + Labels</li>
+                  <li><strong>Playground</strong> – alle Typografie-/Positions-Optionen live an
+                      Punkten ausprobieren</li>
+                  <li><strong>Fonts</strong> – Font-Detection und explizite Font-Wahl</li>
+                  <li><strong>Interaction &amp; Links</strong> – onClick, clickToZoom,
+                      onUpdate-Callbacks</li>
+                  <li><strong>Performance</strong> – 100 bis 5000 Punkte, Messwerte, Refresh-Test</li>
+                  <li><strong>Cluster</strong> – Point Clustering mit Anzahl-Labels
+                      (inkl. 26.1-Workaround)</li>
+                  <li><strong>Linien-Labels</strong> – Bahnstrecken + Luftlinie, Label entlang
+                      der Linie, über/auf/unter</li>
+                  <li><strong>Data-driven &amp; Refresh</strong> – Status-Farben per Expression,
+                      Auto-Refresh-Vergleich</li>
+                  <li><strong>Code-Generator</strong> – Layer deklarativ anlegen, stylen und das
+                      fertige Init-Script für die eigene App abholen</li>
+                </ul>
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+)

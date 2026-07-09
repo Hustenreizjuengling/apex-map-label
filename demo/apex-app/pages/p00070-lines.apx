@@ -14,15 +14,31 @@ page 70 (
         functionAndGlobalVariableDeclaration:
             ```javascript-browser
             // Liest die Steuer-Items der Linien-Seite und baut das Options-Objekt.
+            // Gilt fuer BEIDE Label-Controller (Bahnstrecken + Luftlinie).
             function lnReadOpts() {
               var num = function (id, d) { var v = parseFloat(apex.item(id).getValue()); return isNaN(v) ? d : v; };
               var str = function (id, d) { var v = apex.item(id).getValue(); return v ? v : d; };
+              var always = apex.item('P70_ALWAYS').getValue() === 'Y';
               return {
-                placement: str('P70_PLACEMENT', 'line'),
-                textSize:  num('P70_TEXT_SIZE', 12),
-                textColor: str('P70_TEXT_COLOR', '#1d4ed8'),
-                haloWidth: num('P70_HALO_WIDTH', 2)
+                placement:       str('P70_PLACEMENT', 'line'),
+                position:        str('P70_POSITION', 'top'),
+                offsetPx:        num('P70_OFFSET_PX', 12),
+                textSize:        num('P70_TEXT_SIZE', 12),
+                textColor:       str('P70_TEXT_COLOR', '#1d4ed8'),
+                haloColor:       str('P70_HALO_COLOR', '#ffffff'),
+                haloWidth:       num('P70_HALO_WIDTH', 2),
+                textTransform:   str('P70_TEXT_TRANSFORM', 'none'),
+                letterSpacing:   num('P70_LETTER_SPACING', 0),
+                maxWidth:        num('P70_MAX_WIDTH', 30),
+                allowOverlap:    always,
+                ignorePlacement: always,
+                textOptional:    !always
               };
+            }
+
+            function lnApply() {
+              if (window.lnLabels)  { window.lnLabels.setOptions(lnReadOpts()); }
+              if (window.airLabels) { window.airLabels.setOptions(lnReadOpts()); }
             }
             ```
     }
@@ -37,10 +53,19 @@ page 70 (
         source {
             htmlCode:
                 ```html
-                <p>Der Layer enthält <strong>LineString-Geometrien</strong> (Bahnstrecken). Mit
-                <code>placement: 'line'</code> folgt das Label dem Streckenverlauf und wiederholt
-                sich auf langen Linien; <code>'line-center'</code> setzt genau ein Label in die
-                Linienmitte; <code>'point'</code> fällt auf den Geometrie-Mittelpunkt zurück.</p>
+                <p>Zwei Linien-Layer: <strong>Bahnstrecken</strong> (blau) und eine
+                <strong>Luftlinie</strong> Berlin–München (rot) – beide mit Labels aus
+                apex-map-label. Mit <code>placement: 'line'</code> folgt das Label dem Verlauf
+                und wiederholt sich auf langen Linien, <code>'line-center'</code> setzt genau ein
+                Label in die Linienmitte. <strong>Position</strong> stellt das Label über, auf oder
+                unter die Linie (via <code>position</code> + <code>offsetPx</code>).
+                <strong>Immer anzeigen</strong> erzwingt die Labels unabhängig von Kollisionen
+                (<code>allowOverlap + ignorePlacement, textOptional: false</code>) – bei
+                <code>line</code>/<code>line-center</code> erscheinen sie trotzdem erst, wenn der
+                Text auf das sichtbare Linienstück passt. <strong>Midpoint</strong> löst genau
+                das: ein horizontales Punkt-Label auf der Mitte des sichtbaren Linienstücks,
+                das in <em>jeder</em> Zoom-Stufe sichtbar bleibt und beim Pannen/Zoomen der
+                Kamera folgt.</p>
                 ```
         }
         layout {
@@ -84,8 +109,76 @@ page 70 (
             sqlQuery:
                 ```sql
                 select 'Line (entlang der Linie)' as d, 'line' as r from dual
-                union all select 'Line-Center (mittig)', 'line-center' from dual
+                union all select 'Line-Center (mittig, auf der Linie)', 'line-center' from dual
+                union all select 'Midpoint (horizontal an der Linienmitte)', 'midpoint' from dual
                 union all select 'Point (Centroid)', 'point' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P70_POSITION (
+        type: selectList
+        label {
+            label: Position zur Linie
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Über der Linie' as d, 'top' as r from dual
+                union all select 'Auf der Linie', 'center' from dual
+                union all select 'Unter der Linie', 'bottom' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P70_OFFSET_PX (
+        type: numberField
+        label {
+            label: Offset (px)
+        }
+        layout {
+            sequence: 30
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P70_ALWAYS (
+        type: selectList
+        label {
+            label: Immer anzeigen
+        }
+        layout {
+            sequence: 40
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Nein (Kollisionen vermeiden)' as d, 'N' as r from dual
+                union all select 'Ja (Overlap erlauben)', 'Y' from dual
                 ```
             displayNullValue: false
         }
@@ -97,10 +190,9 @@ page 70 (
             label: Text size (px)
         }
         layout {
-            sequence: 20
+            sequence: 50
             region: @controls
             slot: regionBody
-            startNewRow: false
         }
         appearance {
             template: @/optional-floating
@@ -113,7 +205,23 @@ page 70 (
             label: Text color
         }
         layout {
-            sequence: 30
+            sequence: 60
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P70_HALO_COLOR (
+        type: colorPicker
+        label {
+            label: Halo color
+        }
+        layout {
+            sequence: 70
             region: @controls
             slot: regionBody
             startNewRow: false
@@ -129,7 +237,64 @@ page 70 (
             label: Halo width
         }
         layout {
-            sequence: 40
+            sequence: 80
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P70_TEXT_TRANSFORM (
+        type: selectList
+        label {
+            label: Transform
+        }
+        layout {
+            sequence: 90
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'None' as d, 'none' as r from dual
+                union all select 'UPPERCASE', 'uppercase' from dual
+                union all select 'lowercase', 'lowercase' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P70_LETTER_SPACING (
+        type: numberField
+        label {
+            label: Letter spacing (em)
+        }
+        layout {
+            sequence: 100
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P70_MAX_WIDTH (
+        type: numberField
+        label {
+            label: Max width (em)
+        }
+        layout {
+            sequence: 110
             region: @controls
             slot: regionBody
             startNewRow: false
@@ -147,18 +312,20 @@ page 70 (
             type: sqlQuery
             sqlQuery:
                 ```sql
-                SELECT 1 AS id, 'ICE Berlin – Hamburg' AS route_name,
+                SELECT 1 AS id, 'BAHN' AS typ, 'ICE Berlin – Hamburg' AS route_name,
                        '{"type":"LineString","coordinates":[[13.4050,52.5200],[12.5316,52.6100],[11.6300,52.8500],[10.7800,53.2500],[9.9937,53.5511]]}' AS geojson FROM dual UNION ALL
-                SELECT 2, 'ICE Köln – Frankfurt',
+                SELECT 2, 'BAHN', 'ICE Köln – Frankfurt',
                        '{"type":"LineString","coordinates":[[6.9603,50.9375],[7.1200,50.7200],[7.4400,50.4400],[7.8300,50.2500],[8.2397,50.0782],[8.6821,50.1109]]}' FROM dual UNION ALL
-                SELECT 3, 'IC Hamburg – Köln',
+                SELECT 3, 'BAHN', 'IC Hamburg – Köln',
                        '{"type":"LineString","coordinates":[[9.9937,53.5511],[8.8017,53.0793],[8.2100,52.4700],[7.6261,51.9607],[7.4653,51.5136],[7.0116,51.4556],[6.9603,50.9375]]}' FROM dual UNION ALL
-                SELECT 4, 'ICE Frankfurt – München',
+                SELECT 4, 'BAHN', 'ICE Frankfurt – München',
                        '{"type":"LineString","coordinates":[[8.6821,50.1109],[9.2900,49.7900],[10.1300,49.5800],[11.0767,49.4521],[11.3500,48.7700],[11.5820,48.1351]]}' FROM dual UNION ALL
-                SELECT 5, 'EC Berlin – Dresden',
+                SELECT 5, 'BAHN', 'EC Berlin – Dresden',
                        '{"type":"LineString","coordinates":[[13.4050,52.5200],[13.5800,52.0000],[13.7373,51.0504]]}' FROM dual UNION ALL
-                SELECT 6, 'ICE Stuttgart – München',
-                       '{"type":"LineString","coordinates":[[9.1829,48.7758],[10.0900,48.4000],[10.8900,48.3700],[11.5820,48.1351]]}' FROM dual
+                SELECT 6, 'BAHN', 'ICE Stuttgart – München',
+                       '{"type":"LineString","coordinates":[[9.1829,48.7758],[10.0900,48.4000],[10.8900,48.3700],[11.5820,48.1351]]}' FROM dual UNION ALL
+                SELECT 7, 'LUFT', 'Luftlinie Berlin – München (≈ 504 km)',
+                       '{"type":"LineString","coordinates":[[13.4050,52.5200],[11.5820,48.1351]]}' FROM dual
                 ```
         }
         layout {
@@ -189,7 +356,7 @@ page 70 (
             name: Routes
             layerType: lines
             label {
-                label: Routes
+                label: Bahnstrecken
             }
             layout {
                 sequence: 10
@@ -202,8 +369,42 @@ page 70 (
                 geojsonColumn: GEOJSON
                 primaryKeyColumn: ID
             }
+            rowAssignment {
+                column: TYP
+                valueForThisLayer: BAHN
+            }
             appearance {
                 strokeColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &ROUTE_NAME.
+            }
+        )
+
+        layer airline (
+            name: Luftlinie
+            layerType: lines
+            label {
+                label: Luftlinie
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            rowAssignment {
+                column: TYP
+                valueForThisLayer: LUFT
+            }
+            appearance {
+                strokeColor: #dc2626
             }
             tooltip {
                 advancedFormatting: true
@@ -220,10 +421,17 @@ page 70 (
             plsqlCode:
                 ```plsql
                 begin
-                  :P70_PLACEMENT  := coalesce(:P70_PLACEMENT, 'line');
-                  :P70_TEXT_SIZE  := coalesce(:P70_TEXT_SIZE, '12');
-                  :P70_TEXT_COLOR := coalesce(:P70_TEXT_COLOR, '#1d4ed8');
-                  :P70_HALO_WIDTH := coalesce(:P70_HALO_WIDTH, '2');
+                  :P70_PLACEMENT      := coalesce(:P70_PLACEMENT, 'line');
+                  :P70_POSITION       := coalesce(:P70_POSITION, 'top');
+                  :P70_OFFSET_PX      := coalesce(:P70_OFFSET_PX, '12');
+                  :P70_ALWAYS         := coalesce(:P70_ALWAYS, 'N');
+                  :P70_TEXT_SIZE      := coalesce(:P70_TEXT_SIZE, '12');
+                  :P70_TEXT_COLOR     := coalesce(:P70_TEXT_COLOR, '#1d4ed8');
+                  :P70_HALO_COLOR     := coalesce(:P70_HALO_COLOR, '#ffffff');
+                  :P70_HALO_WIDTH     := coalesce(:P70_HALO_WIDTH, '2');
+                  :P70_TEXT_TRANSFORM := coalesce(:P70_TEXT_TRANSFORM, 'none');
+                  :P70_LETTER_SPACING := coalesce(:P70_LETTER_SPACING, '0');
+                  :P70_MAX_WIDTH      := coalesce(:P70_MAX_WIDTH, '30');
                 end;
                 ```
         }
@@ -253,6 +461,10 @@ page 70 (
                       { regionId: 'MAP_LN', layerName: 'Routes', column: 'ROUTE_NAME', hideTooltip: true, debug: true },
                       lnReadOpts()
                     ));
+                    window.airLabels = apexMapLabel(Object.assign(
+                      { regionId: 'MAP_LN', layerName: 'Luftlinie', column: 'ROUTE_NAME', hideTooltip: true, debug: true },
+                      lnReadOpts()
+                    ));
                     ```
             }
             execution {
@@ -271,7 +483,7 @@ page 70 (
         when {
             event: change
             selectionType: items
-            items: P70_PLACEMENT,P70_TEXT_SIZE,P70_TEXT_COLOR,P70_HALO_WIDTH
+            items: P70_PLACEMENT,P70_POSITION,P70_OFFSET_PX,P70_ALWAYS,P70_TEXT_SIZE,P70_TEXT_COLOR,P70_HALO_COLOR,P70_HALO_WIDTH,P70_TEXT_TRANSFORM,P70_LETTER_SPACING,P70_MAX_WIDTH
         }
 
         action apply-label (
@@ -279,7 +491,7 @@ page 70 (
             settings {
                 jsCode:
                     ```javascript-browser
-                    if (window.lnLabels) { window.lnLabels.setOptions(lnReadOpts()); }
+                    lnApply();
                     ```
             }
             execution {

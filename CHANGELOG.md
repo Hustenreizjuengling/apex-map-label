@@ -4,6 +4,44 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/)
 und folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.4.0] – 2026-07-09
+
+### Hinzugefügt
+- **`position` wirkt jetzt auch bei Linien-Placement**: `'top'` (über der Linie),
+  `'center'` (auf der Linie), `'bottom'` (unter der Linie) – Abstand über `offsetPx`.
+  Intern nur ein vertikaler `text-offset`; der Anchor bleibt `center`, da jeder andere
+  Anchor die Platzierung entlang der Linie verhindert.
+- **`placement: 'midpoint'`**: horizontales Punkt-Label auf der Mitte des sichtbaren
+  Linienstücks. Löst das Grundproblem von `line`/`line-center` (MapLibre blendet
+  Linien-Labels aus, sobald der Text nicht mehr aufs sichtbare Stück passt): Mit
+  `allowOverlap` bleibt das Midpoint-Label **in jeder Zoom-Stufe sichtbar** und folgt
+  beim Pannen/Zoomen der Kamera (pro `idle` wird die Mitte des längsten geladenen
+  Linienfragments neu berechnet). `position`/`offsetPx` wirken wie bei Punkten.
+- **Demo: Code-Generator (Seite 90), deklarativ und Multi-Layer-fähig**: Layer werden in
+  einem editierbaren Interactive Grid angelegt (Name, Geometrie-Typ wie in der
+  APEX-Map-Region, Label-Spalte, Clustering) – gespeichert in einer **APEX Collection**
+  (`MAPLBL_GEN_LAYERS`, Stil-JSON je Layer im CLOB, bleibt über die Session erhalten).
+  Die Grid-Selektion schreibt die `seq_id` in ein Hidden Item; darüber werden die
+  Label-Einstellungen des gewählten Layers geladen und bei jeder Änderung automatisch
+  gespeichert. Neue Layer starten mit Defaults und sind sofort auf der Live-Vorschau
+  sichtbar (Punkte-/Linien-Demo-Layer je nach Geometrie-Typ). Das generierte Init-Script
+  enthält einen `window.lbl_<layer> = apexMapLabel(...)`-Block je Layer (nur
+  Nicht-Default-Optionen); der 26.1-Cluster-Workaround wird je Map-Region genau einmal
+  vorangestellt. Dazu die Einbau-Anleitung für die Ziel-Applikation.
+  Die Vorschau-Karte zeigt **nur die Demo-Layer der konfigurierten Geometrie-Typen**
+  (inkl. synchronisierter Map-Legende), und die Einstellungen blenden typabhängig um
+  (Linien: Placement + Position zur Linie; Punkte/Polygone: Punkt-Position).
+  Grid-Speichern ist gegen LOV-Objekt-/Boolean-Werte und Temp-Record-IDs gehärtet
+  (behebt ORA-06502 beim Speichern neuer/geänderter Zeilen).
+- **Demo: Home-Seite** mit Kurz-README (Features, Quick Start, Seiten-Überblick) und
+  Link aufs GitHub-Repo.
+- **Demo: Linien-Seite ausgebaut**: zweiter Layer mit einer **Luftlinie** Berlin–München
+  (Row Assignment auf derselben Region-Query) und volles Kontrollset wie im Playground –
+  inkl. Position zur Linie (über/auf/unter) und „Immer anzeigen"
+  (`allowOverlap + ignorePlacement, textOptional: false`).
+- **Demo: Cluster-Seite ausgebaut**: volles Kontrollset + wählbares Cluster-Format
+  (Anzahl / eigene Format-Funktion / aus).
+
 ## [2.3.0] – 2026-07-09
 
 ### Hinzugefügt

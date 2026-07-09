@@ -1,0 +1,1477 @@
+page 90 (
+    name: Code-Generator
+    alias: GENERATOR
+    title: Map Label - Code-Generator
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // ===========================================================================
+            // Code-Generator: Layer deklarativ im Grid (APEX Collection), Stil je Layer,
+            // Live-Preview + generiertes Init-Script.
+            // Datenfluss:
+            //   Grid (IG) <-> Collection MAPLBL_GEN_LAYERS (C001 Name, C002 Geometrie,
+            //   C003 Spalte, C004 Cluster, CLOB001 Stil-JSON)
+            //   Selektion -> P90_SEQ_ID -> Stil-Items laden; Item-Änderung -> SAVE_STYLE
+            //   Cache (genCache) -> Preview-Instanzen + Code
+            // ===========================================================================
+            function genNum(id, d) { var v = parseFloat(apex.item(id).getValue()); return isNaN(v) ? d : v; }
+            function genStr(id, d) { var v = apex.item(id).getValue(); return v ? v : d; }
+            function genYN(id)     { return apex.item(id).getValue() === 'Y'; }
+            function genJsLiteral(v) {
+              if (typeof v === 'string') { return "'" + v.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
+              return JSON.stringify(v);
+            }
+
+            window.genCache     = [];   // Zeilen der Collection
+            window.genInstances = [];   // apexMapLabel-Controller der Preview
+
+            // ---- Server-Kommunikation -------------------------------------------------
+            function genFetchLayers(cb) {
+              apex.server.process('GET_LAYERS', {}, { dataType: 'json' }).done(function (data) {
+                window.genCache = (data && data.layers ? data.layers : []).map(function (r) {
+                  var style = {};
+                  try { style = JSON.parse(r.style || '{}'); } catch (e) { style = {}; }
+                  return { seqId: String(r.seqId), name: r.name, geomType: r.geomType,
+                           colName: r.colName, cluster: r.cluster === 'Y', style: style };
+                });
+                if (cb) { cb(); }
+              });
+            }
+
+            function genPersistStyle(seqId, style) {
+              apex.server.process('SAVE_STYLE',
+                { x01: seqId, x02: JSON.stringify(style) }, { dataType: 'json' });
+            }
+
+            // ---- Layer-Typ des ausgewählten Layers --------------------------------------
+            function genSelectedGeomType() {
+              var row = genRowBySeq(apex.item('P90_SEQ_ID').getValue());
+              return row ? row.geomType : 'POINT';
+            }
+
+            // Nur die Einstellungen zeigen, die zum Geometrie-Typ passen
+            function genUpdateSettingVisibility(geomType) {
+              var isLine = geomType === 'LINE';
+              var show = function (id, yes) {
+                if (yes) { apex.item(id).show(); } else { apex.item(id).hide(); }
+              };
+              show('P90_PLACEMENT',     isLine);   // line / line-center
+              show('P90_POSITION_LINE', isLine);   // über / auf / unter der Linie
+              show('P90_POSITION',      !isLine);  // top/bottom/left/right/center
+            }
+
+            // ---- Stil <-> Items ---------------------------------------------------------
+            function genReadStyle() {
+              var always = genYN('P90_ALWAYS');
+              var isLine = genSelectedGeomType() === 'LINE';
+              var o = {
+                placement:       isLine ? genStr('P90_PLACEMENT', 'line') : 'point',
+                position:        isLine ? genStr('P90_POSITION_LINE', 'top')
+                                        : genStr('P90_POSITION', 'top'),
+                offsetPx:        genNum('P90_OFFSET_PX', 16),
+                textSize:        genNum('P90_TEXT_SIZE', 12),
+                textColor:       genStr('P90_TEXT_COLOR', '#1f2937'),
+                haloColor:       genStr('P90_HALO_COLOR', '#ffffff'),
+                haloWidth:       genNum('P90_HALO_WIDTH', 2),
+                textTransform:   genStr('P90_TEXT_TRANSFORM', 'none'),
+                textJustify:     genStr('P90_TEXT_JUSTIFY', 'center'),
+                letterSpacing:   genNum('P90_LETTER_SPACING', 0),
+                maxWidth:        genNum('P90_MAX_WIDTH', 12),
+                minZoom:         genNum('P90_MIN_ZOOM', 0),
+                allowOverlap:    always,
+                ignorePlacement: always,
+                textOptional:    !always,
+                hideTooltip:     genYN('P90_HIDE_TOOLTIP'),
+                hideInfoWindow:  genYN('P90_HIDE_INFOWINDOW'),
+                autoRefresh:     !genYN('P90_NO_AUTO_REFRESH')
+              };
+              var maxLabels = genNum('P90_MAX_LABELS', 0);
+              if (maxLabels > 0) { o.maxLabels = maxLabels; }
+              return o;
+            }
+
+            function genWriteStyleToItems(style) {
+              var d = apexMapLabel.DEFAULTS;
+              var s = Object.assign({}, d, style || {});
+              // 3. Parameter true = Change-Event unterdruecken (kein Save-Loop!)
+              var set = function (id, v) { apex.item(id).setValue(String(v), null, true); };
+              set('P90_PLACEMENT',       ['line', 'line-center', 'midpoint'].indexOf(s.placement) >= 0 ? s.placement : 'line');
+              set('P90_POSITION',        s.position);
+              set('P90_POSITION_LINE',   ['top', 'center', 'bottom'].indexOf(s.position) >= 0 ? s.position : 'top');
+              set('P90_OFFSET_PX',       s.offsetPx);
+              set('P90_TEXT_SIZE',       s.textSize);
+              set('P90_TEXT_COLOR',      s.textColor);
+              set('P90_HALO_COLOR',      s.haloColor);
+              set('P90_HALO_WIDTH',      s.haloWidth);
+              set('P90_TEXT_TRANSFORM',  s.textTransform);
+              set('P90_TEXT_JUSTIFY',    s.textJustify);
+              set('P90_LETTER_SPACING',  s.letterSpacing);
+              set('P90_MAX_WIDTH',       s.maxWidth);
+              set('P90_MIN_ZOOM',        s.minZoom);
+              set('P90_MAX_LABELS',      s.maxLabels != null ? s.maxLabels : 0);
+              set('P90_ALWAYS',          s.allowOverlap ? 'Y' : 'N');
+              set('P90_HIDE_TOOLTIP',    s.hideTooltip ? 'Y' : 'N');
+              set('P90_HIDE_INFOWINDOW', s.hideInfoWindow ? 'Y' : 'N');
+              set('P90_NO_AUTO_REFRESH', s.autoRefresh === false ? 'Y' : 'N');
+            }
+
+            // ---- Auswahl / Grid ---------------------------------------------------------
+            function genRowBySeq(seqId) {
+              return window.genCache.find(function (r) { return r.seqId === String(seqId); }) || null;
+            }
+
+            function genSelectLayer(seqId) {
+              apex.item('P90_SEQ_ID').setValue(String(seqId), null, true);
+              var row = genRowBySeq(seqId);
+              if (row) {
+                genWriteStyleToItems(row.style);
+                genUpdateSettingVisibility(row.geomType);
+                // Vorschau auf den selektierten Layer umschalten
+                genRenderAll();
+              }
+            }
+
+            // Vom Selection-Change-Event des Grids aufgerufen
+            function genOnGridSelection(model, selectedRecords) {
+              if (!model || !selectedRecords || !selectedRecords.length) { return; }
+              var seqId = model.getValue(selectedRecords[0], 'SEQ_ID');
+              if (seqId != null && seqId !== '') { genSelectLayer(seqId); }
+            }
+
+            // ---- Preview ------------------------------------------------------------------
+            // Geometrie-Typ -> Demo-Layer der Vorschau-Karte (beide nutzen Spalte NAME)
+            function genDemoTarget(geomType) {
+              if (geomType === 'LINE') { return { layer: 'Routes', column: 'NAME' }; }
+              return { layer: 'Cities', column: 'NAME' };   // POINT + POLYGON (Centroid)
+            }
+
+            function genEffectiveStyle(row) {
+              var s = Object.assign({}, row.style);
+              if (row.geomType === 'LINE' && (!s.placement || s.placement === 'point')) {
+                s.placement = 'line';
+              }
+              if (row.geomType !== 'LINE') { s.placement = 'point'; }
+              if (row.cluster) { s.clusterLabel = true; }
+              return s;
+            }
+
+            function genRefreshPreview() {
+              window.genInstances.forEach(function (c) { try { c.destroy(); } catch (e) {} });
+              window.genInstances = [];
+              var row = genSelectedRow();
+              if (!row) { return; }
+              var t = genDemoTarget(row.geomType);
+              window.genInstances.push(apexMapLabel(Object.assign(
+                { regionId: 'MAP_GEN', layerName: t.layer, column: t.column, debug: false },
+                genEffectiveStyle(row),
+                // In der Vorschau nie das Tooltip-CSS setzen (gilt fuer die Ziel-App)
+                { hideTooltip: false, hideInfoWindow: false }
+              )));
+            }
+
+            // ---- Code-Erzeugung -------------------------------------------------------------
+            function genVarName(name) {
+              var n = String(name || 'layer').toLowerCase().replace(/\W+/g, '_').replace(/^_+|_+$/g, '');
+              return 'lbl_' + (n || 'layer');
+            }
+
+            function genClusterFixCode(regionId) {
+              return '// Workaround APEX-26.1-Clustering-Bug (siehe README):\n' +
+                     '(function armClusterFix() {\n' +
+                     '  var r = apex.region(' + genJsLiteral(regionId) + '), m = null;\n' +
+                     '  try { m = r && r.call(\'getMapObject\'); } catch (e) {}\n' +
+                     '  if (!m) { setTimeout(armClusterFix, 100); return; }\n' +
+                     '  apexMapLabel.fixApexClusterSource(m);\n' +
+                     '  r.refresh();\n' +
+                     '})();\n';
+            }
+
+            function genEntryCode(row, regionId) {
+              var d    = apexMapLabel.DEFAULTS;
+              var all  = genEffectiveStyle(row);
+              var keys = ['clusterLabel','placement','position','offsetPx','textSize','textColor',
+                          'haloColor','haloWidth','textTransform','textJustify','letterSpacing',
+                          'maxWidth','minZoom','maxLabels','allowOverlap','ignorePlacement',
+                          'textOptional','hideTooltip','hideInfoWindow','autoRefresh'];
+              var rows = [
+                '  regionId:  ' + genJsLiteral(regionId),
+                '  layerName: ' + genJsLiteral(row.name || 'Layer'),
+                '  column:    ' + genJsLiteral(row.colName || 'NAME')
+              ];
+              keys.forEach(function (k) {
+                if (!(k in all)) { return; }
+                if (JSON.stringify(all[k]) === JSON.stringify(d[k])) { return; }
+                rows.push('  ' + k + ': ' + genJsLiteral(all[k]));
+              });
+              return 'window.' + genVarName(row.name) + ' = apexMapLabel({\n' + rows.join(',\n') + '\n});';
+            }
+
+            function genRenderCode() {
+              var regionId = genStr('P90_REGION_ID', 'MY_MAP');
+              var code = '';
+              if (window.genCache.some(function (r) { return r.cluster; })) {
+                code += genClusterFixCode(regionId) + '\n';
+              }
+              window.genCache.forEach(function (row, idx) {
+                if (window.genCache.length > 1) {
+                  code += '// ---- Layer ' + (idx + 1) + ': ' + (row.name || '?') +
+                          ' (' + row.geomType + (row.cluster ? ', Cluster' : '') + ') ----\n';
+                }
+                code += genEntryCode(row, regionId) + '\n\n';
+              });
+              apex.item('P90_CODE').setValue(code.trim() ||
+                '-- Noch keine Layer im Grid angelegt --');
+            }
+
+            // ---- Nur konfigurierte Layer-Typen auf der Vorschau-Karte zeigen ---------------
+            // true = angewendet, false = Legende/Layer existieren noch nicht (Map lädt
+            // ihre Layer asynchron NACH dem initialized-Event -> Retry nötig)
+            function genSetApexLayerVisible(layerName, visible) {
+              try {
+                var region = apex.region('MAP_GEN');
+                var map    = region.call('getMapObject');
+                var info   = (region.layers || []).find(function (l) { return l.name === layerName; });
+                if (!info) { return false; }
+                var id      = String(info.id);
+                var applied = false;
+                // Bevorzugt über die Legend-Checkbox togglen (Widget bleibt synchron),
+                // sonst direkt am Layer; den Legend-Eintrag zusätzlich ausblenden.
+                var cb = document.getElementById(id + '_legend_item_checkbox');
+                if (cb) {
+                  if (cb.checked !== visible) { cb.click(); }
+                  applied = true;
+                } else if (map && map.getLayer(id)) {
+                  map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+                  applied = true;
+                }
+                var li = document.getElementById(id + '_legend_item');
+                if (li) { li.style.display = visible ? '' : 'none'; }
+                return applied;
+              } catch (e) { return false; }
+            }
+
+            // Die Vorschau zeigt genau den im Grid SELEKTIERTEN Layer – so lassen
+            // sich auch mehrere Layer desselben Typs unabhängig stylen.
+            function genSelectedRow() {
+              return genRowBySeq(apex.item('P90_SEQ_ID').getValue());
+            }
+
+            function genSyncDemoLayers(attempt) {
+              attempt = attempt || 0;
+              var row    = genSelectedRow();
+              var isLine = !!row && row.geomType === 'LINE';
+              var ok = genSetApexLayerVisible('Cities', !!row && !isLine);
+              ok = genSetApexLayerVisible('Routes', !!row && isLine) && ok;
+              if (!ok && attempt < 60) {
+                setTimeout(function () { genSyncDemoLayers(attempt + 1); }, 300);
+              }
+            }
+
+            function genRenderAll() {
+              genSyncDemoLayers();
+              genRefreshPreview();
+              genRenderCode();
+            }
+
+            // ---- Aenderung an den Stil-Items ---------------------------------------------
+            function genOnStyleChange() {
+              var seqId = apex.item('P90_SEQ_ID').getValue();
+              var row   = genRowBySeq(seqId);
+              if (!row) { return; }
+              row.style = genReadStyle();
+              genPersistStyle(seqId, row.style);
+              genRenderAll();
+            }
+
+            // ---- Grid speichern: Model-Changes einsammeln -> Ajax -> Collection ----------
+            // Werte defensiv normalisieren: LOV-/Switch-Spalten können Objekte
+            // ({v, d}) oder Booleans liefern, neue Zeilen haben Temp-IDs ("t1000").
+            function genPlainVal(v, dflt) {
+              if (v == null) { return dflt; }
+              if (typeof v === 'object') { v = (v.v != null ? v.v : dflt); }
+              v = String(v).trim();
+              return v || dflt;
+            }
+            function genPlainYN(v) {
+              if (v === true) { return 'Y'; }
+              var s = genPlainVal(v, 'N').toUpperCase();
+              return (s === 'Y' || s === 'TRUE' || s === '1') ? 'Y' : 'N';
+            }
+
+            function genSaveGrid() {
+              var model;
+              try { model = apex.region('GEN_GRID').call('getViews').grid.model; }
+              catch (e) { return; }
+              var payload = { rows: [] };
+              model.getChanges().forEach(function (ch) {
+                var r = ch.record;
+                var status = ch.deleted ? 'D' : (ch.inserted ? 'C' : 'U');
+                var seqId  = genPlainVal(model.getValue(r, 'SEQ_ID'), '');
+                // Geloeschte, nie gespeicherte Zeilen (Temp-ID) gibt es serverseitig nicht
+                if (status === 'D' && !/^\d+$/.test(seqId)) { return; }
+                payload.rows.push({
+                  status:   status,
+                  seqId:    /^\d+$/.test(seqId) ? seqId : null,
+                  name:     genPlainVal(model.getValue(r, 'LAYER_NAME'), 'Layer'),
+                  geomType: genPlainVal(model.getValue(r, 'GEOM_TYPE'), 'POINT'),
+                  colName:  genPlainVal(model.getValue(r, 'LABEL_COLUMN'), 'NAME'),
+                  cluster:  genPlainYN(model.getValue(r, 'CLUSTERING'))
+                });
+              });
+              if (!payload.rows.length) {
+                apex.message.showPageSuccess('Keine Änderungen im Grid.');
+                return;
+              }
+              apex.server.process('SAVE_LAYERS',
+                { x01: JSON.stringify(payload) }, { dataType: 'json' }
+              ).done(function () {
+                // Model-Änderungen sind jetzt serverseitig - leeren, sonst
+                // warnt der Refresh vor "unsaved changes"
+                try { model.clearChanges(); } catch (e) {}
+                apex.region('GEN_GRID').refresh();
+                genFetchLayers(function () {
+                  genRenderAll();
+                  apex.item('P90_SEQ_ID').setValue('', null, true);
+                  genAutoSelectFirst();
+                  apex.message.showPageSuccess('Layer gespeichert.');
+                });
+              });
+            }
+
+            // ---- Grid-Events (DOM-Events des IG, kein Page-Submit noetig) ------------------
+            function genHookGrid() {
+              var el = document.getElementById('GEN_GRID');
+              if (!el || !window.apex || !apex.jQuery) { setTimeout(genHookGrid, 200); return; }
+              apex.jQuery(el).on('interactivegridselectionchange', function (ev, ui) {
+                genOnGridSelection(ui && ui.model, ui && ui.selectedRecords);
+              });
+            }
+
+            function genAutoSelectFirst() {
+              var sel = apex.item('P90_SEQ_ID').getValue();
+              if (sel && genRowBySeq(sel)) { return; }
+              if (!window.genCache.length) { return; }
+              genSelectLayer(window.genCache[0].seqId);
+              try {
+                var grid = apex.region('GEN_GRID').call('getViews').grid;
+                var rec  = grid.model.recordAt(0);
+                if (rec) { grid.setSelectedRecords([rec]); }
+              } catch (e) { /* Grid noch nicht bereit - Items sind gesetzt */ }
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region intro (
+        name: Was macht diese Seite
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <p><strong>1.</strong> Map-Region konfigurieren → <strong>2.</strong> Layer
+                deklarativ im Grid anlegen (Name, Geometrie-Typ wie in der APEX-Map-Region,
+                Label-Spalte, Clustering) und <strong>speichern</strong> →
+                <strong>3.</strong> Layer im Grid anklicken und seine Label-Einstellungen
+                darunter feinjustieren (werden automatisch je Layer gespeichert) →
+                <strong>4.</strong> Die Vorschau-Karte zeigt genau den <strong>selektierten</strong>
+                Layer – so lassen sich auch mehrere Layer desselben Typs unabhängig stylen.
+                Das Init-Script unten enthält immer <strong>alle</strong> Layer. Neue Layer
+                starten mit Default-Einstellungen und sind sofort sichtbar.</p>
+                ```
+        }
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    region target (
+        name: 1. Ziel-Map-Region
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P90_REGION_ID (
+        type: textField
+        label {
+            label: Static ID der Map-Region in der Ziel-App
+        }
+        layout {
+            sequence: 10
+            region: @target
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_SEQ_ID (
+        type: hidden
+        layout {
+            sequence: 20
+            region: @target
+            slot: regionBody
+        }
+    )
+
+    region gen-grid (
+        name: 2. Layer (deklarativ, wie in der Ziel-Map-Region)
+        type: interactiveGrid
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select seq_id,
+                       c001 as layer_name,
+                       c002 as geom_type,
+                       c003 as label_column,
+                       c004 as clustering
+                  from apex_collections
+                 where collection_name = 'MAPLBL_GEN_LAYERS'
+                 order by seq_id
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: GEN_GRID
+        }
+        edit {
+            enabled: true
+            allowedOperations: [
+                add
+                update
+                delete
+            ]
+        }
+
+        savedReport PRIMARY (
+            visibility: primary
+            view {
+                default: grid
+            }
+
+            displayColumn (
+                column: @LAYER_NAME
+                layout {
+                    sequence: 1
+                }
+            )
+
+            displayColumn (
+                column: @GEOM_TYPE
+                layout {
+                    sequence: 2
+                }
+            )
+
+            displayColumn (
+                column: @LABEL_COLUMN
+                layout {
+                    sequence: 3
+                }
+            )
+
+            displayColumn (
+                column: @CLUSTERING
+                layout {
+                    sequence: 4
+                }
+            )
+
+        )
+
+        column SEQ_ID (
+            type: hidden
+            layout {
+                sequence: 10
+            }
+            source {
+                databaseColumn: SEQ_ID
+                dataType: number
+                primaryKey: true
+            }
+        )
+
+        column LAYER_NAME (
+            type: textField
+            heading {
+                heading: Layer-Name (case-sensitive)
+            }
+            layout {
+                sequence: 20
+            }
+            validation {
+                maxLength: 200
+            }
+            source {
+                databaseColumn: LAYER_NAME
+                dataType: varchar2
+            }
+        )
+
+        column GEOM_TYPE (
+            type: selectList
+            heading {
+                heading: Geometrie-Typ
+            }
+            layout {
+                sequence: 30
+            }
+            lov {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select 'Punkte' as d, 'POINT' as r from dual
+                    union all select 'Linien', 'LINE' from dual
+                    union all select 'Polygone', 'POLYGON' from dual
+                    ```
+                displayNullValue: false
+            }
+            source {
+                databaseColumn: GEOM_TYPE
+                dataType: varchar2
+            }
+        )
+
+        column LABEL_COLUMN (
+            type: textField
+            heading {
+                heading: Label-Spalte (Tooltip-Spalte!)
+            }
+            layout {
+                sequence: 40
+            }
+            validation {
+                maxLength: 128
+            }
+            source {
+                databaseColumn: LABEL_COLUMN
+                dataType: varchar2
+            }
+        )
+
+        column CLUSTERING (
+            type: switch
+            heading {
+                heading: Clustering
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                databaseColumn: CLUSTERING
+                dataType: varchar2
+            }
+        )
+
+    )
+
+    button save-layers (
+        buttonName: SAVE_LAYERS_BTN
+        label: Layer speichern
+        layout {
+            sequence: 10
+            region: @gen-grid
+            slot: edit
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            icon: fa-save
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+            executeValidations: false
+        }
+    )
+
+    region controls (
+        name: 3. Label-Einstellungen des ausgewählten Layers
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P90_PLACEMENT (
+        type: selectList
+        label {
+            label: Linien-Placement
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Line (wiederholt entlang der Linie)' as d, 'line' as r from dual
+                union all select 'Line-Center (einmal, auf der Linie)', 'line-center' from dual
+                union all select 'Midpoint (horizontal, immer sichtbar)', 'midpoint' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_POSITION_LINE (
+        type: selectList
+        label {
+            label: Position zur Linie
+        }
+        layout {
+            sequence: 15
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Über der Linie' as d, 'top' as r from dual
+                union all select 'Auf der Linie', 'center' from dual
+                union all select 'Unter der Linie', 'bottom' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_POSITION (
+        type: selectList
+        label {
+            label: Position
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Top' as d, 'top' as r from dual
+                union all select 'Bottom', 'bottom' from dual
+                union all select 'Left', 'left' from dual
+                union all select 'Right', 'right' from dual
+                union all select 'Center', 'center' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_OFFSET_PX (
+        type: numberField
+        label {
+            label: Offset (px)
+        }
+        layout {
+            sequence: 30
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_ALWAYS (
+        type: selectList
+        label {
+            label: Immer anzeigen
+        }
+        layout {
+            sequence: 40
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Nein (Kollisionen vermeiden)' as d, 'N' as r from dual
+                union all select 'Ja (Overlap erlauben)', 'Y' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_TEXT_SIZE (
+        type: numberField
+        label {
+            label: Text size (px)
+        }
+        layout {
+            sequence: 50
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_TEXT_COLOR (
+        type: colorPicker
+        label {
+            label: Text color
+        }
+        layout {
+            sequence: 60
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_HALO_COLOR (
+        type: colorPicker
+        label {
+            label: Halo color
+        }
+        layout {
+            sequence: 70
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_HALO_WIDTH (
+        type: numberField
+        label {
+            label: Halo width
+        }
+        layout {
+            sequence: 80
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_TEXT_TRANSFORM (
+        type: selectList
+        label {
+            label: Transform
+        }
+        layout {
+            sequence: 90
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'None' as d, 'none' as r from dual
+                union all select 'UPPERCASE', 'uppercase' from dual
+                union all select 'lowercase', 'lowercase' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_TEXT_JUSTIFY (
+        type: selectList
+        label {
+            label: Justify
+        }
+        layout {
+            sequence: 100
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Center' as d, 'center' as r from dual
+                union all select 'Auto', 'auto' from dual
+                union all select 'Left', 'left' from dual
+                union all select 'Right', 'right' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_LETTER_SPACING (
+        type: numberField
+        label {
+            label: Letter spacing (em)
+        }
+        layout {
+            sequence: 110
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_MAX_WIDTH (
+        type: numberField
+        label {
+            label: Max width (em)
+        }
+        layout {
+            sequence: 120
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_MIN_ZOOM (
+        type: numberField
+        label {
+            label: Min zoom
+        }
+        layout {
+            sequence: 130
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_MAX_LABELS (
+        type: numberField
+        label {
+            label: Max labels (0 = alle)
+        }
+        layout {
+            sequence: 140
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P90_HIDE_TOOLTIP (
+        type: selectList
+        label {
+            label: APEX-Tooltip verstecken
+        }
+        layout {
+            sequence: 150
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Nein' as d, 'N' as r from dual
+                union all select 'Ja', 'Y' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_HIDE_INFOWINDOW (
+        type: selectList
+        label {
+            label: InfoWindow verstecken
+        }
+        layout {
+            sequence: 160
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Nein' as d, 'N' as r from dual
+                union all select 'Ja', 'Y' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P90_NO_AUTO_REFRESH (
+        type: selectList
+        label {
+            label: Auto-Refresh
+        }
+        layout {
+            sequence: 170
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'An (Default)' as d, 'N' as r from dual
+                union all select 'Aus', 'Y' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    region map-gen (
+        name: 4. Live-Vorschau (selektierter Layer)
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT  1 AS id, 'CITY' AS typ, 'Berlin'            AS name, '{"type":"Point","coordinates":[13.4050,52.5200]}' AS geojson FROM dual UNION ALL
+                SELECT  2, 'CITY',        'Hamburg',                  '{"type":"Point","coordinates":[9.9937,53.5511]}'            FROM dual UNION ALL
+                SELECT  3, 'CITY',        'München',                  '{"type":"Point","coordinates":[11.5820,48.1351]}'           FROM dual UNION ALL
+                SELECT  4, 'CITY',        'Köln',                     '{"type":"Point","coordinates":[6.9603,50.9375]}'            FROM dual UNION ALL
+                SELECT  5, 'CITY',        'Frankfurt am Main',        '{"type":"Point","coordinates":[8.6821,50.1109]}'            FROM dual UNION ALL
+                SELECT  6, 'CITY',        'Stuttgart',                '{"type":"Point","coordinates":[9.1829,48.7758]}'            FROM dual UNION ALL
+                SELECT  7, 'CITY',        'Düsseldorf',               '{"type":"Point","coordinates":[6.7735,51.2277]}'            FROM dual UNION ALL
+                SELECT  8, 'CITY',        'Leipzig',                  '{"type":"Point","coordinates":[12.3731,51.3397]}'           FROM dual UNION ALL
+                SELECT  9, 'CITY',        'Dortmund',                 '{"type":"Point","coordinates":[7.4653,51.5136]}'            FROM dual UNION ALL
+                SELECT 10, 'CITY',        'Dresden',                  '{"type":"Point","coordinates":[13.7373,51.0504]}'           FROM dual UNION ALL
+                SELECT 11, 'CITY',        'Hannover',                 '{"type":"Point","coordinates":[9.7320,52.3759]}'            FROM dual UNION ALL
+                SELECT 12, 'CITY',        'Nürnberg',                 '{"type":"Point","coordinates":[11.0767,49.4521]}'           FROM dual UNION ALL
+                SELECT 13, 'CITY',        'Bremen',                   '{"type":"Point","coordinates":[8.8017,53.0793]}'            FROM dual UNION ALL
+                SELECT 21, 'ROUTE',       'ICE Berlin – Hamburg',     '{"type":"LineString","coordinates":[[13.4050,52.5200],[12.5316,52.6100],[11.6300,52.8500],[10.7800,53.2500],[9.9937,53.5511]]}' FROM dual UNION ALL
+                SELECT 22, 'ROUTE',       'IC Hamburg – Köln',        '{"type":"LineString","coordinates":[[9.9937,53.5511],[8.8017,53.0793],[8.2100,52.4700],[7.6261,51.9607],[7.4653,51.5136],[7.0116,51.4556],[6.9603,50.9375]]}' FROM dual UNION ALL
+                SELECT 23, 'ROUTE',       'ICE Frankfurt – München',  '{"type":"LineString","coordinates":[[8.6821,50.1109],[9.2900,49.7900],[10.1300,49.5800],[11.0767,49.4521],[11.3500,48.7700],[11.5820,48.1351]]}' FROM dual
+                ```
+        }
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_GEN
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: staticValues
+            latitude: 51.0
+            longitude: 10.0
+            zoomLevel: 6
+        }
+
+        layer cities (
+            name: Cities
+            label {
+                label: Punkte-Demo
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            rowAssignment {
+                column: TYP
+                valueForThisLayer: CITY
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-map-marker
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer routes (
+            name: Routes
+            layerType: lines
+            label {
+                label: Linien-Demo
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            rowAssignment {
+                column: TYP
+                valueForThisLayer: ROUTE
+            }
+            appearance {
+                strokeColor: #64748b
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    region output (
+        name: 5. Generiertes Init-Script
+        type: staticContent
+        layout {
+            sequence: 50
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P90_CODE (
+        type: textarea
+        label {
+            label: Kompletter Code für die "Map Initialized"-Dynamic-Action der Ziel-App
+        }
+        layout {
+            sequence: 10
+            region: @output
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            height: 16
+        }
+        settings {
+            resizable: true
+        }
+    )
+
+    region howto (
+        name: Einbau-Anleitung für die Ziel-Applikation
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <ol>
+                  <li><strong>Library hochladen:</strong> <code>apex_map_label.js</code> in der
+                      Ziel-App unter <em>Shared Components → Static Application Files</em>
+                      hochladen (Datei aus diesem Repo: <code>src/apex_map_label.js</code>).</li>
+                  <li><strong>Einbinden:</strong> Auf der Seite mit der Map unter
+                      <em>Page Properties → JavaScript → File URLs</em> eintragen:
+                      <code>&#35;APP_FILES&#35;apex_map_label.js</code></li>
+                  <li><strong>Map vorbereiten:</strong> Der Map-Region eine
+                      <em>Static ID</em> geben und in <strong>jedem</strong> zu beschriftenden
+                      Layer die Label-Spalte als <em>Tooltip-Spalte</em> konfigurieren –
+                      sonst kommt der Wert nicht am Client an. Layer-Namen und Geometrie-Typen
+                      müssen dem Grid oben entsprechen.</li>
+                  <li><strong>Dynamic Action anlegen:</strong> Auf der Map-Region, Event
+                      <em>Map Initialized [Map]</em>, Selection Type <em>Region</em>,
+                      True Action <em>Execute JavaScript Code</em> – und das komplette
+                      generierte Script von oben einfügen (ein Block je Layer,
+                      alles in EINE Action).</li>
+                  <li><strong>Fertig.</strong> Labels erscheinen nach dem Map-Load; bei
+                      Region-Refreshes aktualisieren sie sich automatisch
+                      (<code>autoRefresh</code> ist Default).</li>
+                </ol>
+                <p><strong>Hinweis zur Vorschau:</strong> Gezeigt wird immer der im Grid
+                selektierte Layer – Punkte/Polygone auf dem Punkte-Demo-Layer (Polygone werden
+                am Centroid beschriftet), Linien auf dem Linien-Demo-Layer. Das Init-Script
+                enthält unabhängig davon alle Layer. Die Layer-Liste bleibt für die Dauer der
+                APEX-Session erhalten (APEX Collection).</p>
+                ```
+        }
+        layout {
+            sequence: 60
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    process ensure-collection (
+        name: Ensure layer collection
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  if not apex_collection.collection_exists('MAPLBL_GEN_LAYERS') then
+                    apex_collection.create_collection('MAPLBL_GEN_LAYERS');
+                    -- Start-Layer mit Default-Einstellungen, damit sofort etwas sichtbar ist
+                    apex_collection.add_member(
+                      p_collection_name => 'MAPLBL_GEN_LAYERS',
+                      p_c001            => 'Stations',
+                      p_c002            => 'POINT',
+                      p_c003            => 'NAME',
+                      p_c004            => 'N',
+                      p_clob001         => to_clob('{}'));
+                  end if;
+                  :P90_REGION_ID := coalesce(:P90_REGION_ID, 'MY_MAP');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    process save-layers (
+        name: SAVE_LAYERS
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_values apex_json.t_values;
+                  l_cnt    pls_integer;
+                  l_status varchar2(1);
+                  l_seq    varchar2(40);
+                begin
+                  apex_json.parse(l_values, apex_application.g_x01);
+                  l_cnt := apex_json.get_count(p_path => 'rows', p_values => l_values);
+                  for i in 1 .. nvl(l_cnt, 0) loop
+                    l_status := apex_json.get_varchar2(p_path => 'rows[%d].status', p0 => i, p_values => l_values);
+                    l_seq    := apex_json.get_varchar2(p_path => 'rows[%d].seqId',  p0 => i, p_values => l_values);
+                    -- Temp-IDs neuer Grid-Zeilen ("t1000") sind keine Collection-Seqs
+                    if l_status in ('U', 'D')
+                       and to_number(l_seq default null on conversion error) is null then
+                      continue;
+                    end if;
+                    case l_status
+                      when 'C' then
+                        apex_collection.add_member(
+                          p_collection_name => 'MAPLBL_GEN_LAYERS',
+                          p_c001    => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].name',     p0 => i, p_values => l_values), 'Layer'),
+                          p_c002    => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].geomType', p0 => i, p_values => l_values), 'POINT'),
+                          p_c003    => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].colName',  p0 => i, p_values => l_values), 'NAME'),
+                          p_c004    => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].cluster',  p0 => i, p_values => l_values), 'N'),
+                          p_clob001 => to_clob('{}'));
+                      when 'U' then
+                        apex_collection.update_member_attribute(
+                          p_collection_name => 'MAPLBL_GEN_LAYERS',
+                          p_seq             => to_number(l_seq),
+                          p_attr_number     => 1,
+                          p_attr_value      => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].name',     p0 => i, p_values => l_values), 'Layer'));
+                        apex_collection.update_member_attribute(
+                          p_collection_name => 'MAPLBL_GEN_LAYERS',
+                          p_seq             => to_number(l_seq),
+                          p_attr_number     => 2,
+                          p_attr_value      => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].geomType', p0 => i, p_values => l_values), 'POINT'));
+                        apex_collection.update_member_attribute(
+                          p_collection_name => 'MAPLBL_GEN_LAYERS',
+                          p_seq             => to_number(l_seq),
+                          p_attr_number     => 3,
+                          p_attr_value      => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].colName',  p0 => i, p_values => l_values), 'NAME'));
+                        apex_collection.update_member_attribute(
+                          p_collection_name => 'MAPLBL_GEN_LAYERS',
+                          p_seq             => to_number(l_seq),
+                          p_attr_number     => 4,
+                          p_attr_value      => coalesce(apex_json.get_varchar2(p_path => 'rows[%d].cluster',  p0 => i, p_values => l_values), 'N'));
+                      when 'D' then
+                        apex_collection.delete_member(
+                          p_collection_name => 'MAPLBL_GEN_LAYERS',
+                          p_seq             => to_number(l_seq));
+                      else
+                        null;
+                    end case;
+                  end loop;
+                  apex_json.open_object;
+                  apex_json.write('ok', true);
+                  apex_json.close_object;
+                exception
+                  when others then
+                    apex_json.open_object;
+                    apex_json.write('ok', false);
+                    apex_json.write('error', substr(sqlerrm, 1, 500));
+                    apex_json.close_object;
+                end;
+                ```
+        }
+        execution {
+            sequence: 15
+            point: ajaxCallback
+        }
+    )
+
+    process get-layers (
+        name: GET_LAYERS
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  apex_json.open_object;
+                  apex_json.open_array('layers');
+                  for r in (select seq_id, c001, c002, c003, c004, clob001
+                              from apex_collections
+                             where collection_name = 'MAPLBL_GEN_LAYERS'
+                             order by seq_id) loop
+                    apex_json.open_object;
+                    apex_json.write('seqId',    r.seq_id);
+                    apex_json.write('name',     r.c001);
+                    apex_json.write('geomType', r.c002);
+                    apex_json.write('colName',  r.c003);
+                    apex_json.write('cluster',  r.c004);
+                    apex_json.write('style',    r.clob001);
+                    apex_json.close_object;
+                  end loop;
+                  apex_json.close_array;
+                  apex_json.close_object;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: ajaxCallback
+        }
+    )
+
+    process save-style (
+        name: SAVE_STYLE
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  apex_collection.update_member_attribute(
+                    p_collection_name => 'MAPLBL_GEN_LAYERS',
+                    p_seq             => to_number(apex_application.g_x01),
+                    p_clob_number     => 1,
+                    p_clob_value      => to_clob(apex_application.g_x02));
+                  apex_json.open_object;
+                  apex_json.write('ok', true);
+                  apex_json.close_object;
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+            point: ajaxCallback
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init generator
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-gen
+        }
+
+        action init-generator (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    genHookGrid();
+                    genUpdateSettingVisibility('POINT');
+                    genFetchLayers(function () {
+                      genRenderAll();
+                      genAutoSelectFirst();
+                    });
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-style-change (
+        name: Style geändert - speichern und anwenden
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P90_PLACEMENT,P90_POSITION,P90_POSITION_LINE,P90_OFFSET_PX,P90_ALWAYS,P90_TEXT_SIZE,P90_TEXT_COLOR,P90_HALO_COLOR,P90_HALO_WIDTH,P90_TEXT_TRANSFORM,P90_TEXT_JUSTIFY,P90_LETTER_SPACING,P90_MAX_WIDTH,P90_MIN_ZOOM,P90_MAX_LABELS,P90_HIDE_TOOLTIP,P90_HIDE_INFOWINDOW,P90_NO_AUTO_REFRESH
+        }
+
+        action apply-style (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    genOnStyleChange();
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-save-grid (
+        name: Grid speichern
+        execution {
+            sequence: 25
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @save-layers
+        }
+
+        action save-grid-action (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    genSaveGrid();
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-region-change (
+        name: Region-ID geändert - Code neu
+        execution {
+            sequence: 30
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P90_REGION_ID
+        }
+
+        action rerender-code (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    genRenderCode();
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

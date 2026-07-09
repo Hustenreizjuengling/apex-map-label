@@ -197,5 +197,20 @@ list navigation-menu (
         }
     )
 
+    entry generator (
+        label: Code-Generator
+        icon {
+            imageIconCssClasses: fa-magic
+        }
+        layout {
+            sequence: 100
+        }
+        link {
+            target: {
+                page: 90
+            }
+        }
+    )
+
 )
 

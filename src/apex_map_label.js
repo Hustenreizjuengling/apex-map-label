@@ -1,5 +1,5 @@
 /**
- * apex_map_label.js  ·  v2.3
+ * apex_map_label.js  ·  v2.4
  * --------------------------------------------------------------------------
  * Always-on, performante Beschriftungen für Oracle APEX Map Regions.
  *
@@ -48,7 +48,7 @@
   const DEFAULT_OFFSET_PX   = 16;
   const VALID_POSITIONS     = ['top', 'bottom', 'left', 'right', 'center'];
   const VALID_TRANSFORMS    = ['none', 'uppercase', 'lowercase'];
-  const VALID_PLACEMENTS    = ['point', 'line', 'line-center'];
+  const VALID_PLACEMENTS    = ['point', 'line', 'line-center', 'midpoint'];
 
   // Vollständige Defaults – auch Dokumentation
   const DEFAULTS = Object.freeze({
@@ -69,9 +69,13 @@
     // -- Positionierung (intuitiv)
     position:        'top',        // 'top' | 'bottom' | 'left' | 'right' | 'center'
     offsetPx:        DEFAULT_OFFSET_PX, // number – Abstand zum Punkt in Pixeln
-    placement:       'point',      // 'point' | 'line' | 'line-center' – bei 'line*' folgt das
-                                   //   Label dem Linien-/Umriss-Verlauf (Original-Geometrie
-                                   //   statt Centroid; position/offsetPx wirken dann nicht)
+    placement:       'point',      // 'point' | 'line' | 'line-center' | 'midpoint'
+                                   //   'line*': Label folgt dem Linien-/Umriss-Verlauf
+                                   //   (rendert nur, wenn der Text auf die Linie passt).
+                                   //   'midpoint': horizontales Punkt-Label auf der Mitte des
+                                   //   sichtbaren Linienstücks – bleibt in jeder Zoom-Stufe
+                                   //   sichtbar (mit allowOverlap) und folgt der Kamera;
+                                   //   position/offsetPx wirken wie bei Punkten.
 
     // -- Positionierung (Profi-Override)
     anchor:          null,         // string  – direktes Mapbox text-anchor
@@ -217,6 +221,68 @@
   }
 
   // ==========================================================================
+  // Linien-Mittelpunkt (entlang der Länge, nicht Bounding-Box)
+  // --------------------------------------------------------------------------
+  // Liefert { point, len } des LÄNGSTEN Koordinaten-Pfads der Geometrie.
+  // querySourceFeatures liefert tile-geclippte Fragmente – wer das längste
+  // Fragment nimmt und bei jedem idle neu rechnet, bekommt ein Label, das dem
+  // sichtbaren Linienstück folgt ("wandert mit der Kamera mit").
+  // ==========================================================================
+  function segLen(a, b) {
+    // planare Näherung mit Breitengrad-Korrektur – für Label-Zwecke genau genug
+    const kx = Math.cos(((a[1] + b[1]) / 2) * Math.PI / 180);
+    const dx = (b[0] - a[0]) * kx;
+    const dy = b[1] - a[1];
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function longestPath(geom) {
+    if (!geom) return null;
+    switch (geom.type) {
+      case 'LineString':      return geom.coordinates;
+      case 'Polygon':         return geom.coordinates[0];
+      case 'MultiLineString':
+      case 'MultiPolygon': {
+        let best = null, bestLen = -1;
+        const paths = geom.type === 'MultiPolygon'
+          ? geom.coordinates.map(p => p[0])
+          : geom.coordinates;
+        for (const p of paths) {
+          let len = 0;
+          for (let i = 1; i < p.length; i++) len += segLen(p[i - 1], p[i]);
+          if (len > bestLen) { bestLen = len; best = p; }
+        }
+        return best;
+      }
+      default: return null;
+    }
+  }
+
+  function lineMidpoint(geom) {
+    const coords = longestPath(geom);
+    if (!coords || coords.length < 2) return null;
+    let total = 0;
+    for (let i = 1; i < coords.length; i++) total += segLen(coords[i - 1], coords[i]);
+    if (total === 0) return { point: coords[0], len: 0 };
+    let acc = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const seg = segLen(coords[i - 1], coords[i]);
+      if (acc + seg >= total / 2) {
+        const t = seg > 0 ? (total / 2 - acc) / seg : 0;
+        return {
+          point: [
+            coords[i - 1][0] + (coords[i][0] - coords[i - 1][0]) * t,
+            coords[i - 1][1] + (coords[i][1] - coords[i - 1][1]) * t
+          ],
+          len: total
+        };
+      }
+      acc += seg;
+    }
+    return { point: coords[coords.length - 1], len: total };
+  }
+
+  // ==========================================================================
   // Centroid einer Geometrie
   // ==========================================================================
   function centroid(geom) {
@@ -236,16 +302,6 @@
   // Position → Anchor + Offset (Pixel → em umrechnen)
   // ==========================================================================
   function computePositioning(opts) {
-    // Bei Linien-Placement folgt das Label dem Verlauf – position/offsetPx
-    // gelten nicht (dokumentiert), und ein bottom-Anchor mit Offset kann die
-    // Platzierung entlang der Linie komplett verhindern. Daher neutral.
-    if (opts.placement && opts.placement !== 'point') {
-      return {
-        anchor: opts.anchor != null ? opts.anchor : 'center',
-        offset: opts.offset != null ? opts.offset : [0, 0]
-      };
-    }
-
     // Wenn zoomBasedSize aktiv: Mittelwert für statische Offset-Berechnung.
     // (Eine zoom-abhängige Offset-Expression wäre korrekter, aber komplexer
     //  und Mapbox bricht sie für text-offset nicht überall – Trade-off.)
@@ -257,6 +313,21 @@
     const dist = px / refSize;
 
     const pos = VALID_POSITIONS.indexOf(opts.position) >= 0 ? opts.position : 'top';
+
+    // Bei Linien-Placement: Label über ('top'), auf ('center') oder unter
+    // ('bottom') der Linie – nur VERTIKALER Offset, der Anchor MUSS 'center'
+    // bleiben (jeder andere Anchor verhindert die Platzierung entlang der
+    // Linie komplett). left/right sind bei Linien nicht sinnvoll → center.
+    // 'midpoint' ist ein Punkt-Label und nutzt die normale Punkt-Positionierung.
+    if (opts.placement === 'line' || opts.placement === 'line-center') {
+      let off = [0, 0];
+      if (pos === 'top')    off = [0, -dist];
+      if (pos === 'bottom') off = [0,  dist];
+      return {
+        anchor: opts.anchor != null ? opts.anchor : 'center',
+        offset: opts.offset != null ? opts.offset : off
+      };
+    }
 
     let auto;
     switch (pos) {
@@ -738,8 +809,10 @@
 
     // -- Feature-Collection für unsere Source bauen --------------------------
     function buildFC() {
-      const seen   = new Set();
-      const out    = [];
+      const seen    = new Set();
+      const out     = [];
+      // midpoint: pro Feature das LÄNGSTE Tile-Fragment behalten (key -> {idx, len})
+      const seenMid = new Map();
 
       for (const f of collectFeatures()) {
         const isCluster = !!(f.properties && f.properties.cluster);
@@ -750,9 +823,12 @@
         if (isCluster && !opts.clusterLabel) continue;
         if (!isCluster && opts.filter && !opts.filter(f)) continue;
 
+        const midpointMode = !isCluster && opts.placement === 'midpoint';
         const key = makeDedupKey(f);
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (!midpointMode) {
+          if (seen.has(key)) continue;
+          seen.add(key);
+        }
 
         let text;
         if (isCluster) {
@@ -771,15 +847,36 @@
 
         // Geometrie: bei placement 'line'/'line-center' den Original-Verlauf
         // von Linien/Polygonen behalten, damit das Label ihm folgen kann.
+        // 'midpoint' setzt ein Punkt-Label auf die Mitte des Linienverlaufs.
         // Punkte (und Cluster) bleiben immer Punkte.
         let geometry = null;
+        let fragLen  = 0;
         const gt = f.geometry && f.geometry.type;
-        if (!isCluster && opts.placement !== 'point' && gt && gt !== 'Point' && gt !== 'MultiPoint') {
+        const isLineGeom = !isCluster && gt && gt !== 'Point' && gt !== 'MultiPoint';
+        if (isLineGeom && (opts.placement === 'line' || opts.placement === 'line-center')) {
           geometry = f.geometry;
+        } else if (isLineGeom && midpointMode) {
+          const m = lineMidpoint(f.geometry);
+          if (!m) continue;
+          fragLen  = m.len;
+          geometry = { type: 'Point', coordinates: m.point };
         } else {
           const c = centroid(f.geometry);
           if (!c) continue;
           geometry = { type: 'Point', coordinates: c };
+        }
+
+        // midpoint: dasselbe Feature kommt pro Tile als Fragment – das längste
+        // gewinnt, damit das Label auf der Mitte des sichtbaren Stücks sitzt.
+        if (midpointMode) {
+          const prev = seenMid.get(key);
+          if (prev) {
+            if (fragLen > prev.len) {
+              out[prev.idx].geometry = geometry;
+              prev.len = fragLen;
+            }
+            continue;
+          }
         }
 
         // Cluster priorisieren sich über ihre Größe, sonst greift sortKey()
@@ -804,6 +901,7 @@
           }),
           geometry
         });
+        if (midpointMode) { seenMid.set(key, { idx: out.length - 1, len: fragLen }); }
       }
 
       // maxLabels: Top-K nach sortKey
@@ -830,7 +928,8 @@
     function buildLayout() {
       const pos = computePositioning(opts);
       const layout = {
-        'symbol-placement':      opts.placement,
+        // 'midpoint' rendert als normales Punkt-Label
+        'symbol-placement':      (opts.placement === 'line' || opts.placement === 'line-center') ? opts.placement : 'point',
         'text-field':            ['get', 'label'],
         'text-size':             getTextSizeExpression(),
         'text-offset':           pos.offset,
@@ -1028,7 +1127,7 @@
           map.setLayoutProperty(lyrId, 'text-letter-spacing',   opts.letterSpacing);
           map.setLayoutProperty(lyrId, 'text-rotate',           opts.rotate);
           map.setLayoutProperty(lyrId, 'text-transform',        opts.textTransform);
-          map.setLayoutProperty(lyrId, 'symbol-placement',      opts.placement);
+          map.setLayoutProperty(lyrId, 'symbol-placement',      (opts.placement === 'line' || opts.placement === 'line-center') ? opts.placement : 'point');
           map.setLayoutProperty(lyrId, 'symbol-sort-key',       opts.sortKey ? ['-', 0, ['get', 'sk']] : undefined);
           map.setLayerZoomRange(lyrId, opts.minZoom, opts.maxZoom);
 
@@ -1103,7 +1202,7 @@
   // ==========================================================================
   // Export
   // ==========================================================================
-  apexMapLabel.VERSION  = '2.3.0';
+  apexMapLabel.VERSION  = '2.4.0';
   apexMapLabel.DEFAULTS = DEFAULTS;
 
   global.apexMapLabel = apexMapLabel;

@@ -2,7 +2,7 @@
 
 > Always-on Beschriftungen für Oracle APEX Map Regions – performant, flexibel, ein-Datei-Library.
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)](./CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![APEX](https://img.shields.io/badge/APEX-21.2%2B-orange.svg)]()
 
@@ -274,7 +274,7 @@ Hauptfunktion. Gibt ein Controller-Objekt zurück.
 |---|---|---|---|
 | `position` | `string` | `'top'` | `'top'` \| `'bottom'` \| `'left'` \| `'right'` \| `'center'` |
 | `offsetPx` | `number` | `16` | Abstand zum Punkt in Pixeln |
-| `placement` | `string` | `'point'` | `'point'` \| `'line'` \| `'line-center'` – bei `'line*'` folgt das Label dem Linien-/Umriss-Verlauf (`position`/`offsetPx` wirken dann nicht) |
+| `placement` | `string` | `'point'` | `'point'` \| `'line'` \| `'line-center'` \| `'midpoint'` – bei `'line*'` folgt das Label dem Linien-/Umriss-Verlauf (`position`: über/auf/unter der Linie); `'midpoint'` setzt ein **horizontales Punkt-Label auf die Mitte des sichtbaren Linienstücks** – bleibt in jeder Zoom-Stufe sichtbar und folgt der Kamera |
 
 ##### Positionierung (Profi, überschreibt obiges)
 
@@ -493,9 +493,26 @@ apexMapLabel({
 });
 ```
 
-Funktioniert auch mit Polygon-Umrissen. `position`/`offsetPx` wirken bei
-Linien-Placement nicht; Punkt-Features im selben Layer werden bei `'line*'`
-nicht gelabelt.
+Funktioniert auch mit Polygon-Umrissen. Mit `position: 'top' | 'center' | 'bottom'`
+(+ `offsetPx`) steht das Label über, auf oder unter der Linie.
+
+**Wichtig:** `line`/`line-center`-Labels rendert MapLibre nur, wenn der Text auf das
+sichtbare Linienstück passt – beim Rauszoomen verschwinden sie. Sollen Linien-Labels
+**in jeder Zoom-Stufe sichtbar** bleiben, nimm `'midpoint'`: ein horizontales
+Punkt-Label auf der Mitte des sichtbaren Linienstücks, das beim Pannen/Zoomen der
+Kamera folgt (wird bei jedem `idle` auf dem längsten geladenen Linienstück neu
+berechnet):
+
+```javascript
+apexMapLabel({
+  regionId: 'MY_MAP', layerName: 'Routes', column: 'ROUTE_NAME',
+  placement: 'midpoint',
+  allowOverlap: true, ignorePlacement: true, textOptional: false  // nie ausblenden
+});
+```
+
+**Tipp:** Der interaktive **Code-Generator** in der Demo-App (Seite 90) stellt alle
+diese Optionen per Klick ein und erzeugt den fertigen Einbau-Code.
 
 ### Klick aufs Label → APEX-Seite öffnen
 
