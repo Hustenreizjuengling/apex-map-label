@@ -152,5 +152,50 @@ list navigation-menu (
         }
     )
 
+    entry cluster (
+        label: Cluster
+        icon {
+            imageIconCssClasses: fa-object-group
+        }
+        layout {
+            sequence: 70
+        }
+        link {
+            target: {
+                page: 60
+            }
+        }
+    )
+
+    entry lines (
+        label: Linien-Labels
+        icon {
+            imageIconCssClasses: fa-random
+        }
+        layout {
+            sequence: 80
+        }
+        link {
+            target: {
+                page: 70
+            }
+        }
+    )
+
+    entry data-refresh (
+        label: Data-driven & Refresh
+        icon {
+            imageIconCssClasses: fa-refresh
+        }
+        layout {
+            sequence: 90
+        }
+        link {
+            target: {
+                page: 80
+            }
+        }
+    )
+
 )
 

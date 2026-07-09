@@ -1,0 +1,349 @@
+page 60 (
+    name: Cluster
+    alias: CLUSTER
+    title: Map Label - Cluster
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Liest die Steuer-Items der Cluster-Seite und baut das Options-Objekt.
+            function clReadOpts() {
+              var num = function (id, d) { var v = parseFloat(apex.item(id).getValue()); return isNaN(v) ? d : v; };
+              var str = function (id, d) { var v = apex.item(id).getValue(); return v ? v : d; };
+              return {
+                clusterLabel: apex.item('P60_CLUSTER_LABEL').getValue() === 'Y',
+                textSize:     num('P60_TEXT_SIZE', 13),
+                textColor:    str('P60_TEXT_COLOR', '#1f2937'),
+                position:     str('P60_POSITION', 'top')
+              };
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region info (
+        name: Was zeigt diese Seite
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <p>Der Layer hat <strong>Point Clustering</strong> aktiviert. Mit
+                <code>clusterLabel: true</code> beschriftet apex-map-label die Cluster mit ihrer
+                Punktanzahl (<code>point_count</code>), Einzelpunkte bekommen weiterhin ihr normales
+                Label. Heraus- und hineinzoomen, um Cluster entstehen und zerfallen zu sehen.</p>
+                <p><strong>Hinweis:</strong> APEX 26.1 hat einen Bug, durch den Cluster-Layer gar
+                nicht erst gerendert werden (MapLibre lehnt die Source ab: "cluster: boolean
+                expected, object found"). Diese Seite nutzt den Workaround
+                <code>apexMapLabel.fixApexClusterSource(map)</code> + Region-Refresh.</p>
+                ```
+        }
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    region controls (
+        name: Einstellungen
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P60_CLUSTER_LABEL (
+        type: selectList
+        label {
+            label: Cluster labels
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'On (Anzahl anzeigen)' as d, 'Y' as r from dual
+                union all select 'Off (Cluster ohne Label)', 'N' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P60_TEXT_SIZE (
+        type: numberField
+        label {
+            label: Text size (px)
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_TEXT_COLOR (
+        type: colorPicker
+        label {
+            label: Text color
+        }
+        layout {
+            sequence: 30
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P60_POSITION (
+        type: selectList
+        label {
+            label: Position
+        }
+        layout {
+            sequence: 40
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Top' as d, 'top' as r from dual
+                union all select 'Bottom', 'bottom' from dual
+                union all select 'Center', 'center' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    region map-cl (
+        name: Cluster-Karte
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT  1 AS id, 'Berlin'          AS name, '{"type":"Point","coordinates":[13.4050,52.5200]}' AS geojson FROM dual UNION ALL
+                SELECT  2,       'Hamburg',                 '{"type":"Point","coordinates":[9.9937,53.5511]}'             FROM dual UNION ALL
+                SELECT  3,       'München',                 '{"type":"Point","coordinates":[11.5820,48.1351]}'            FROM dual UNION ALL
+                SELECT  4,       'Köln',                    '{"type":"Point","coordinates":[6.9603,50.9375]}'             FROM dual UNION ALL
+                SELECT  5,       'Frankfurt am Main',       '{"type":"Point","coordinates":[8.6821,50.1109]}'             FROM dual UNION ALL
+                SELECT  6,       'Stuttgart',               '{"type":"Point","coordinates":[9.1829,48.7758]}'             FROM dual UNION ALL
+                SELECT  7,       'Düsseldorf',              '{"type":"Point","coordinates":[6.7735,51.2277]}'             FROM dual UNION ALL
+                SELECT  8,       'Leipzig',                 '{"type":"Point","coordinates":[12.3731,51.3397]}'            FROM dual UNION ALL
+                SELECT  9,       'Dortmund',                '{"type":"Point","coordinates":[7.4653,51.5136]}'             FROM dual UNION ALL
+                SELECT 10,       'Dresden',                 '{"type":"Point","coordinates":[13.7373,51.0504]}'            FROM dual UNION ALL
+                SELECT 11,       'Hannover',                '{"type":"Point","coordinates":[9.7320,52.3759]}'             FROM dual UNION ALL
+                SELECT 12,       'Nürnberg',                '{"type":"Point","coordinates":[11.0767,49.4521]}'            FROM dual UNION ALL
+                SELECT 13,       'Bremen',                  '{"type":"Point","coordinates":[8.8017,53.0793]}'             FROM dual UNION ALL
+                SELECT 14,       'Essen',                   '{"type":"Point","coordinates":[7.0116,51.4556]}'             FROM dual UNION ALL
+                SELECT 15,       'Duisburg',                '{"type":"Point","coordinates":[6.7623,51.4344]}'             FROM dual UNION ALL
+                SELECT 16,       'Bochum',                  '{"type":"Point","coordinates":[7.2162,51.4818]}'             FROM dual UNION ALL
+                SELECT 17,       'Wuppertal',               '{"type":"Point","coordinates":[7.1508,51.2562]}'             FROM dual UNION ALL
+                SELECT 18,       'Gelsenkirchen',           '{"type":"Point","coordinates":[7.0857,51.5177]}'             FROM dual UNION ALL
+                SELECT 19,       'Mönchengladbach',         '{"type":"Point","coordinates":[6.4428,51.1805]}'             FROM dual UNION ALL
+                SELECT 20,       'Krefeld',                 '{"type":"Point","coordinates":[6.5623,51.3388]}'             FROM dual UNION ALL
+                SELECT 21,       'Oberhausen',              '{"type":"Point","coordinates":[6.8514,51.4963]}'             FROM dual UNION ALL
+                SELECT 22,       'Hagen',                   '{"type":"Point","coordinates":[7.4637,51.3671]}'             FROM dual UNION ALL
+                SELECT 23,       'Bonn',                    '{"type":"Point","coordinates":[7.0982,50.7374]}'             FROM dual UNION ALL
+                SELECT 24,       'Münster',                 '{"type":"Point","coordinates":[7.6261,51.9607]}'             FROM dual UNION ALL
+                SELECT 25,       'Aachen',                  '{"type":"Point","coordinates":[6.0839,50.7753]}'             FROM dual UNION ALL
+                SELECT 26,       'Wiesbaden',               '{"type":"Point","coordinates":[8.2397,50.0782]}'             FROM dual UNION ALL
+                SELECT 27,       'Mainz',                   '{"type":"Point","coordinates":[8.2473,49.9929]}'             FROM dual UNION ALL
+                SELECT 28,       'Mannheim',                '{"type":"Point","coordinates":[8.4660,49.4875]}'             FROM dual UNION ALL
+                SELECT 29,       'Karlsruhe',               '{"type":"Point","coordinates":[8.4037,49.0069]}'             FROM dual UNION ALL
+                SELECT 30,       'Heidelberg',              '{"type":"Point","coordinates":[8.6724,49.3988]}'             FROM dual UNION ALL
+                SELECT 31,       'Darmstadt',               '{"type":"Point","coordinates":[8.6512,49.8728]}'             FROM dual UNION ALL
+                SELECT 32,       'Offenbach',               '{"type":"Point","coordinates":[8.7761,50.0956]}'             FROM dual UNION ALL
+                SELECT 33,       'Ludwigshafen',            '{"type":"Point","coordinates":[8.4353,49.4774]}'             FROM dual UNION ALL
+                SELECT 34,       'Leverkusen',              '{"type":"Point","coordinates":[6.9838,51.0459]}'             FROM dual UNION ALL
+                SELECT 35,       'Solingen',                '{"type":"Point","coordinates":[7.0845,51.1652]}'             FROM dual
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_CL
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: staticValues
+            latitude: 50.9
+            longitude: 8.5
+            zoomLevel: 6
+        }
+
+        layer stations (
+            name: Stations
+            label {
+                label: Stations
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            pointObjects {
+                style: icon
+                iconSource: iconClass
+                iconCssClasses: fa-map-marker
+            }
+            pointClustering {
+                enable: true
+                iconCssClasses: fa-circle-o
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    process set-defaults (
+        name: Set control defaults
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P60_CLUSTER_LABEL := coalesce(:P60_CLUSTER_LABEL, 'Y');
+                  :P60_TEXT_SIZE     := coalesce(:P60_TEXT_SIZE, '13');
+                  :P60_TEXT_COLOR    := coalesce(:P60_TEXT_COLOR, '#1f2937');
+                  :P60_POSITION      := coalesce(:P60_POSITION, 'top');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-cl
+        }
+
+        action init-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    // Workaround APEX-26.1-Bug: Clustering-Source wird von MapLibre
+                    // abgelehnt ("cluster: boolean expected"). Patchen + Region neu
+                    // laden, dann wartet apexMapLabel event-getrieben auf den Layer.
+                    // getMapObject ist beim DA-Zeitpunkt evtl. noch null -> Retry.
+                    (function armClusterFix() {
+                      var r = apex.region('MAP_CL'), m = null;
+                      try { m = r && r.call('getMapObject'); } catch (e) { /* noch nicht bereit */ }
+                      if (!m) { setTimeout(armClusterFix, 100); return; }
+                      apexMapLabel.fixApexClusterSource(m);
+                      r.refresh();
+                    })();
+
+                    window.clLabels = apexMapLabel(Object.assign(
+                      { regionId: 'MAP_CL', layerName: 'Stations', column: 'NAME', hideTooltip: true, debug: true },
+                      clReadOpts()
+                    ));
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-apply (
+        name: Apply options
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P60_CLUSTER_LABEL,P60_TEXT_SIZE,P60_TEXT_COLOR,P60_POSITION
+        }
+
+        action apply-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    if (window.clLabels) { window.clLabels.setOptions(clReadOpts()); }
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

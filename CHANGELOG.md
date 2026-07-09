@@ -4,6 +4,49 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/)
 und folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.3.0] – 2026-07-09
+
+### Hinzugefügt
+- **`clusterLabel`** (`true` | `(feature) => string`): Beschriftet Cluster mit ihrer
+  Punktanzahl (`point_count_abbreviated`), statt sie wie bisher zu überspringen.
+  Cluster priorisieren sich automatisch über ihre Größe (`symbol-sort-key`).
+- **`properties`** (`(feature) => object`): Kopiert Zusatzwerte in die Label-Features –
+  damit funktionieren data-driven Mapbox-Expressions, z. B.
+  `textColor: ['match', ['get','status'], 'INACTIVE', '#dc2626', '#1f2937']`.
+- **`placement`** (`'point'` | `'line'` | `'line-center'`): Labels folgen dem Verlauf von
+  Linien (und Polygon-Umrissen) statt am Centroid zu kleben – die Original-Geometrie wird
+  durchgereicht und `symbol-placement` entsprechend gesetzt. Punkte bleiben Punkte.
+- **`autoRefresh`** (Default `true`): Abonniert das `apexafterrefresh`-Event der Region –
+  die manuelle After-Refresh-DA mit `ctrl.refresh()` entfällt. Abschaltbar per Option,
+  live umschaltbar via `setOptions()`.
+- **`apexMapLabel.fixApexClusterSource(map)`**: Workaround für einen APEX-26.1-Bug, durch
+  den Layer mit aktiviertem Point Clustering gar nicht gerendert werden (das Widget übergibt
+  sein Cluster-Konfigobjekt als `cluster`-Property, MapLibre validiert strikt:
+  *"cluster: boolean expected, object found"* → `addSource` schlägt fehl, der komplette
+  Layer fehlt). Patcht `map.addSource`; danach die Region einmal refreshen.
+
+### Behoben
+- **Labels verschwanden nach einem Region-Refresh** (z. B. Filter-Änderung): Die Library
+  konnte nach einem Daten-Reload mit veralteten Layer-Referenzen ins Leere greifen und
+  leer rendern. Die Layer-Referenzen werden jetzt bei Bedarf über den Layer-Namen neu
+  aufgelöst; ist der Layer während des Reloads kurz nicht verfügbar, bleiben die alten
+  Labels stehen statt leer zu rendern. (End-to-End verifiziert: 1000 → 500 Punkte auf der
+  Performance-Demo-Seite aktualisiert die Labels jetzt korrekt.)
+- **`placement: 'line'` renderte keine Labels**: Der aus `position`/`offsetPx` berechnete
+  `text-anchor`/`text-offset` verhinderte die Platzierung entlang der Linie komplett. Bei
+  Linien-Placement werden Anchor/Offset jetzt neutralisiert (`center`/`[0,0]`), manuelle
+  `anchor`/`offset`-Overrides bleiben möglich.
+- **Labels blieben nach Region-Refresh unsichtbar, obwohl die Source korrekt aktualisiert
+  wurde**: APEX schiebt beim Refresh (`_updateLayersPosition`) seine Layer per `moveLayer()`
+  über den Label-Layer; die APEX-Icons (`icon-overlap: always`) gewinnen dann die
+  Kollisions-Platzierung und unterdrücken sämtliche Labels. Die Library prüft jetzt bei
+  jedem Update die Layer-Reihenfolge und schiebt den Label-Layer bei Bedarf wieder über
+  den APEX-Layer (respektiert `addBefore`).
+
+### Geändert
+- Change-Detection-Signatur umfasst jetzt alle Feature-Properties (inkl. `properties()`-
+  Zusatzdaten) und Nicht-Punkt-Geometrien.
+
 ## [2.2.0] – 2026-07-09
 
 ### Sicherheit

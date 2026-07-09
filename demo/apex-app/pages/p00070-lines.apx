@@ -1,0 +1,293 @@
+page 70 (
+    name: Linien
+    alias: LINES
+    title: Map Label - Linien
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        fileUrls: #APP_FILES#apex_map_label.js
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Liest die Steuer-Items der Linien-Seite und baut das Options-Objekt.
+            function lnReadOpts() {
+              var num = function (id, d) { var v = parseFloat(apex.item(id).getValue()); return isNaN(v) ? d : v; };
+              var str = function (id, d) { var v = apex.item(id).getValue(); return v ? v : d; };
+              return {
+                placement: str('P70_PLACEMENT', 'line'),
+                textSize:  num('P70_TEXT_SIZE', 12),
+                textColor: str('P70_TEXT_COLOR', '#1d4ed8'),
+                haloWidth: num('P70_HALO_WIDTH', 2)
+              };
+            }
+            ```
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region info (
+        name: Was zeigt diese Seite
+        type: staticContent
+        source {
+            htmlCode:
+                ```html
+                <p>Der Layer enthält <strong>LineString-Geometrien</strong> (Bahnstrecken). Mit
+                <code>placement: 'line'</code> folgt das Label dem Streckenverlauf und wiederholt
+                sich auf langen Linien; <code>'line-center'</code> setzt genau ein Label in die
+                Linienmitte; <code>'point'</code> fällt auf den Geometrie-Mittelpunkt zurück.</p>
+                ```
+        }
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    region controls (
+        name: Einstellungen
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P70_PLACEMENT (
+        type: selectList
+        label {
+            label: Placement
+        }
+        layout {
+            sequence: 10
+            region: @controls
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Line (entlang der Linie)' as d, 'line' as r from dual
+                union all select 'Line-Center (mittig)', 'line-center' from dual
+                union all select 'Point (Centroid)', 'point' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    pageItem P70_TEXT_SIZE (
+        type: numberField
+        label {
+            label: Text size (px)
+        }
+        layout {
+            sequence: 20
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P70_TEXT_COLOR (
+        type: colorPicker
+        label {
+            label: Text color
+        }
+        layout {
+            sequence: 30
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P70_HALO_WIDTH (
+        type: numberField
+        label {
+            label: Halo width
+        }
+        layout {
+            sequence: 40
+            region: @controls
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    region map-ln (
+        name: Strecken-Karte
+        type: map
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                SELECT 1 AS id, 'ICE Berlin – Hamburg' AS route_name,
+                       '{"type":"LineString","coordinates":[[13.4050,52.5200],[12.5316,52.6100],[11.6300,52.8500],[10.7800,53.2500],[9.9937,53.5511]]}' AS geojson FROM dual UNION ALL
+                SELECT 2, 'ICE Köln – Frankfurt',
+                       '{"type":"LineString","coordinates":[[6.9603,50.9375],[7.1200,50.7200],[7.4400,50.4400],[7.8300,50.2500],[8.2397,50.0782],[8.6821,50.1109]]}' FROM dual UNION ALL
+                SELECT 3, 'IC Hamburg – Köln',
+                       '{"type":"LineString","coordinates":[[9.9937,53.5511],[8.8017,53.0793],[8.2100,52.4700],[7.6261,51.9607],[7.4653,51.5136],[7.0116,51.4556],[6.9603,50.9375]]}' FROM dual UNION ALL
+                SELECT 4, 'ICE Frankfurt – München',
+                       '{"type":"LineString","coordinates":[[8.6821,50.1109],[9.2900,49.7900],[10.1300,49.5800],[11.0767,49.4521],[11.3500,48.7700],[11.5820,48.1351]]}' FROM dual UNION ALL
+                SELECT 5, 'EC Berlin – Dresden',
+                       '{"type":"LineString","coordinates":[[13.4050,52.5200],[13.5800,52.0000],[13.7373,51.0504]]}' FROM dual UNION ALL
+                SELECT 6, 'ICE Stuttgart – München',
+                       '{"type":"LineString","coordinates":[[9.1829,48.7758],[10.0900,48.4000],[10.8900,48.3700],[11.5820,48.1351]]}' FROM dual
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        advanced {
+            htmlDomId: MAP_LN
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: staticValues
+            latitude: 51.0
+            longitude: 10.0
+            zoomLevel: 6
+        }
+
+        layer routes (
+            name: Routes
+            layerType: lines
+            label {
+                label: Routes
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                location: regionSource
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &ROUTE_NAME.
+            }
+        )
+
+    )
+
+    process set-defaults (
+        name: Set control defaults
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P70_PLACEMENT  := coalesce(:P70_PLACEMENT, 'line');
+                  :P70_TEXT_SIZE  := coalesce(:P70_TEXT_SIZE, '12');
+                  :P70_TEXT_COLOR := coalesce(:P70_TEXT_COLOR, '#1d4ed8');
+                  :P70_HALO_WIDTH := coalesce(:P70_HALO_WIDTH, '2');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-init (
+        name: Init labels
+        execution {
+            sequence: 10
+        }
+        when {
+            event: region/map/spatialmapinitialized
+            selectionType: region
+            region: @map-ln
+        }
+
+        action init-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    window.lnLabels = apexMapLabel(Object.assign(
+                      { regionId: 'MAP_LN', layerName: 'Routes', column: 'ROUTE_NAME', hideTooltip: true, debug: true },
+                      lnReadOpts()
+                    ));
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-apply (
+        name: Apply options
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P70_PLACEMENT,P70_TEXT_SIZE,P70_TEXT_COLOR,P70_HALO_WIDTH
+        }
+
+        action apply-label (
+            action: executeJsCode
+            settings {
+                jsCode:
+                    ```javascript-browser
+                    if (window.lnLabels) { window.lnLabels.setOptions(lnReadOpts()); }
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

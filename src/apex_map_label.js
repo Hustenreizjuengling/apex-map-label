@@ -1,5 +1,5 @@
 /**
- * apex_map_label.js  ·  v2.2
+ * apex_map_label.js  ·  v2.3
  * --------------------------------------------------------------------------
  * Always-on, performante Beschriftungen für Oracle APEX Map Regions.
  *
@@ -48,6 +48,7 @@
   const DEFAULT_OFFSET_PX   = 16;
   const VALID_POSITIONS     = ['top', 'bottom', 'left', 'right', 'center'];
   const VALID_TRANSFORMS    = ['none', 'uppercase', 'lowercase'];
+  const VALID_PLACEMENTS    = ['point', 'line', 'line-center'];
 
   // Vollständige Defaults – auch Dokumentation
   const DEFAULTS = Object.freeze({
@@ -60,9 +61,17 @@
     source:          null,         // 'tooltip' | 'infoWindow' – gerenderter Tooltip-Text
     format:          null,         // (cols, feature) => string – volle Kontrolle
 
+    // -- Cluster & Zusatz-Daten
+    clusterLabel:    false,        // true | (feature) => string – Anzahl (point_count) auf Clustern anzeigen
+    properties:      null,         // (feature) => object – Zusatz-Properties je Label-Feature,
+                                   //   z.B. für data-driven textColor-Expressions (['get', 'status'])
+
     // -- Positionierung (intuitiv)
     position:        'top',        // 'top' | 'bottom' | 'left' | 'right' | 'center'
     offsetPx:        DEFAULT_OFFSET_PX, // number – Abstand zum Punkt in Pixeln
+    placement:       'point',      // 'point' | 'line' | 'line-center' – bei 'line*' folgt das
+                                   //   Label dem Linien-/Umriss-Verlauf (Original-Geometrie
+                                   //   statt Centroid; position/offsetPx wirken dann nicht)
 
     // -- Positionierung (Profi-Override)
     anchor:          null,         // string  – direktes Mapbox text-anchor
@@ -105,6 +114,7 @@
     // -- APEX-Integration
     hideTooltip:     false,        // APEX-Tooltip dieser Region per CSS verstecken
     hideInfoWindow:  false,        // dito InfoWindow
+    autoRefresh:     true,         // bei "After Refresh" der Region automatisch refresh()
 
     // -- Timing / Debug
     waitTimeoutMs:   DEFAULT_TIMEOUT_MS, // number – Abbruch nach so vielen ms OHNE Fortschritt (Stall-Timeout, nicht absolut)
@@ -226,6 +236,16 @@
   // Position → Anchor + Offset (Pixel → em umrechnen)
   // ==========================================================================
   function computePositioning(opts) {
+    // Bei Linien-Placement folgt das Label dem Verlauf – position/offsetPx
+    // gelten nicht (dokumentiert), und ein bottom-Anchor mit Offset kann die
+    // Platzierung entlang der Linie komplett verhindern. Daher neutral.
+    if (opts.placement && opts.placement !== 'point') {
+      return {
+        anchor: opts.anchor != null ? opts.anchor : 'center',
+        offset: opts.offset != null ? opts.offset : [0, 0]
+      };
+    }
+
     // Wenn zoomBasedSize aktiv: Mittelwert für statische Offset-Berechnung.
     // (Eine zoom-abhängige Offset-Expression wäre korrekter, aber komplexer
     //  und Mapbox bricht sie für text-offset nicht überall – Trade-off.)
@@ -432,6 +452,11 @@
       warn(`unknown textTransform "${opts.textTransform}", using "none"`);
       opts.textTransform = 'none';
     }
+    if (opts.placement && VALID_PLACEMENTS.indexOf(opts.placement) < 0) {
+      warn(`unknown placement "${opts.placement}", falling back to "point". ` +
+           `Valid: ${VALID_PLACEMENTS.join(', ')}`);
+      opts.placement = 'point';
+    }
     if (opts.zoomBasedSize != null && (!Array.isArray(opts.zoomBasedSize) || opts.zoomBasedSize.length !== 2)) {
       warn('zoomBasedSize must be [min, max] – ignoring');
       opts.zoomBasedSize = null;
@@ -496,6 +521,27 @@
     let inner      = null;         // echter Controller nach Init
     const pending  = { refresh: false, setOptions: null };
 
+    // -- Auto-Refresh: "After Refresh" der APEX-Region abonnieren -------------
+    // Damit entfällt die manuelle After-Refresh-DA mit ctrl.refresh().
+    let arBound = false;
+    const onRegionRefresh = () => controller.refresh();
+    const bindAutoRefresh = () => {
+      if (arBound || !opts.autoRefresh) return;
+      const jq = global.apex && apex.jQuery;
+      const el = document.getElementById(opts.regionId);
+      if (!jq || !el) return;
+      jq(el).on('apexafterrefresh', onRegionRefresh);
+      arBound = true;
+      log('autoRefresh: listening for apexafterrefresh on #' + opts.regionId);
+    };
+    const unbindAutoRefresh = () => {
+      if (!arBound) return;
+      const jq = global.apex && apex.jQuery;
+      const el = document.getElementById(opts.regionId);
+      if (jq && el) jq(el).off('apexafterrefresh', onRegionRefresh);
+      arBound = false;
+    };
+
     waitForMapAndLayer(region, opts.layerName, opts.waitTimeoutMs, () => cancelled, log).then(res => {
       if (cancelled) return;
 
@@ -517,21 +563,29 @@
 
       log('map + layer ready:', opts.layerName, '→', res.layerId);
       inner = initLabelLayer({
-        map: res.map, opts, log, layerId: res.layerId, cssEl, instanceId
+        region, map: res.map, opts, log, layerId: res.layerId, cssEl, instanceId
       });
 
       // Aufgestaute Calls nachholen
       if (pending.setOptions) inner.setOptions(pending.setOptions);
       if (pending.refresh)    inner.refresh();
+
+      // Falls das Region-Element beim ersten Versuch noch fehlte
+      bindAutoRefresh();
     });
 
     // Proxy-Controller: gibt sofort zurück, leitet später an `inner` weiter
-    return {
+    const controller = {
       refresh: () => {
         if (inner) inner.refresh();
         else pending.refresh = true;
       },
       setOptions: (o) => {
+        // autoRefresh betrifft das Event-Binding im Proxy, nicht den Layer
+        if (o && 'autoRefresh' in o) {
+          opts.autoRefresh = !!o.autoRefresh;
+          if (opts.autoRefresh) bindAutoRefresh(); else unbindAutoRefresh();
+        }
         if (inner) inner.setOptions(o);
         else pending.setOptions = Object.assign(pending.setOptions || {}, o || {});
       },
@@ -541,22 +595,49 @@
       getMap:        () => inner ? inner.getMap()        : null,
       destroy: () => {
         cancelled = true;
+        unbindAutoRefresh();
         if (inner) inner.destroy();
         else if (cssEl && cssEl.parentNode) cssEl.parentNode.removeChild(cssEl);
       }
     };
+
+    bindAutoRefresh();
+    return controller;
   }
 
   // ==========================================================================
   // Eigentliche Label-Layer-Initialisierung
   // ==========================================================================
   function initLabelLayer(ctx) {
-    const { map, opts, log, layerId, instanceId } = ctx;
+    const { region, map, opts, log, instanceId } = ctx;
     let cssEl = ctx.cssEl;   // kann bei setOptions() neu injiziert werden
 
-    const apexLayer    = map.getLayer(layerId);
-    const apexSourceId = apexLayer ? apexLayer.source         : null;
-    const apexSrcLayer = apexLayer ? apexLayer['source-layer'] : null;
+    // Die APEX-Layer-Referenzen sind bewusst veränderlich: Bei einem
+    // Region-Refresh legt APEX Layer + Source mit NEUEN IDs an. Mit den
+    // beim Init gecachten IDs liefe jede Abfrage ins Leere und die Labels
+    // würden leer gerendert ("Labels weg nach Refresh"). Deshalb lösen wir
+    // bei Bedarf über den Layer-Namen neu auf (ensureApexLayer).
+    let layerId      = ctx.layerId;
+    let apexSourceId = null;
+    let apexSrcLayer = null;
+
+    function adoptApexLayer(id) {
+      layerId = id;
+      const l = map.getLayer(id);
+      apexSourceId = l ? l.source         : null;
+      apexSrcLayer = l ? l['source-layer'] : null;
+    }
+    adoptApexLayer(layerId);
+
+    // true = APEX-Layer (wieder) vorhanden; false = aktuell nicht auflösbar
+    function ensureApexLayer() {
+      if (map.getLayer(layerId)) return true;
+      const id = resolveLayerId(region, map, opts.layerName);
+      if (!id) return false;
+      log('APEX layer re-resolved after refresh:', opts.layerName, '→', id);
+      adoptApexLayer(id);
+      return true;
+    }
 
     // Eindeutige IDs (mit Kollisionsschutz)
     const baseUid = `apxlbl_${opts.regionId}_${opts.layerName}`.replace(/\W+/g, '_');
@@ -661,24 +742,67 @@
       const out    = [];
 
       for (const f of collectFeatures()) {
-        if (f.properties && f.properties.cluster) continue;
-        if (opts.filter && !opts.filter(f)) continue;
+        const isCluster = !!(f.properties && f.properties.cluster);
+
+        // Cluster: nur labeln wenn clusterLabel aktiv ist. filter()/sortKey()
+        // werden für Cluster übersprungen – User-Callbacks erwarten
+        // Tooltip-JSON, das Cluster-Features nicht haben.
+        if (isCluster && !opts.clusterLabel) continue;
+        if (!isCluster && opts.filter && !opts.filter(f)) continue;
 
         const key = makeDedupKey(f);
         if (seen.has(key)) continue;
         seen.add(key);
 
-        const text = deriveLabel(f, opts, opts.debug ? log : null);
+        let text;
+        if (isCluster) {
+          if (typeof opts.clusterLabel === 'function') {
+            try { text = opts.clusterLabel(f); }
+            catch (e) { error('clusterLabel() threw:', e); continue; }
+            text = text == null ? null : String(text);
+          } else {
+            const p = f.properties;
+            text = String(p.point_count_abbreviated != null ? p.point_count_abbreviated : p.point_count);
+          }
+        } else {
+          text = deriveLabel(f, opts, opts.debug ? log : null);
+        }
         if (text == null || text === '') continue;
 
-        const c = centroid(f.geometry);
-        if (!c) continue;
+        // Geometrie: bei placement 'line'/'line-center' den Original-Verlauf
+        // von Linien/Polygonen behalten, damit das Label ihm folgen kann.
+        // Punkte (und Cluster) bleiben immer Punkte.
+        let geometry = null;
+        const gt = f.geometry && f.geometry.type;
+        if (!isCluster && opts.placement !== 'point' && gt && gt !== 'Point' && gt !== 'MultiPoint') {
+          geometry = f.geometry;
+        } else {
+          const c = centroid(f.geometry);
+          if (!c) continue;
+          geometry = { type: 'Point', coordinates: c };
+        }
 
-        const sk = opts.sortKey ? (Number(opts.sortKey(f)) || 0) : 0;
+        // Cluster priorisieren sich über ihre Größe, sonst greift sortKey()
+        const sk = isCluster
+          ? (Number(f.properties.point_count) || 0)
+          : (opts.sortKey ? (Number(opts.sortKey(f)) || 0) : 0);
+
+        // Zusatz-Properties für data-driven Styling – eigene Keys gewinnen
+        let extra = null;
+        if (!isCluster && typeof opts.properties === 'function') {
+          try { extra = opts.properties(f); }
+          catch (e) { error('properties() threw:', e); }
+        }
+
         out.push({
           type: 'Feature',
-          properties: { label: text, __srcId: f.id != null ? f.id : null, sk },
-          geometry: { type: 'Point', coordinates: c }
+          properties: Object.assign({}, extra, {
+            label:     text,
+            __srcId:   f.id != null ? f.id : null,
+            __cluster: isCluster ? 1 : 0,
+            sk
+          }),
+          geometry
         });
       }
 
@@ -706,6 +830,7 @@
     function buildLayout() {
       const pos = computePositioning(opts);
       const layout = {
+        'symbol-placement':      opts.placement,
         'text-field':            ['get', 'label'],
         'text-size':             getTextSizeExpression(),
         'text-offset':           pos.offset,
@@ -783,20 +908,60 @@
       on(map, 'mouseleave', lyrId, () => { map.getCanvas().style.cursor = ''; });
     }
 
+    // -- Layer-Reihenfolge verteidigen ----------------------------------------
+    // APEX ruft bei jedem Region-Refresh _updateLayersPosition() auf, das die
+    // eigenen Layer per moveLayer() ganz nach OBEN schiebt – über unseren
+    // Label-Layer. Die APEX-Icons (icon-overlap: always) werden dann bei der
+    // Symbol-Platzierung zuerst platziert und unsere Labels kollidieren mit
+    // den Icon-Boxen → alle Labels unsichtbar, obwohl die Source stimmt.
+    function ensureLayerOrder() {
+      if (!map.getLayer(lyrId)) return;
+      const layers = (map.getStyle() && map.getStyle().layers) || [];
+      let ourIdx = -1, apexIdx = -1;
+      for (let i = 0; i < layers.length; i++) {
+        if (layers[i].id === lyrId)   ourIdx  = i;
+        if (layers[i].id === layerId) apexIdx = i;
+      }
+      if (ourIdx >= 0 && apexIdx > ourIdx) {
+        const before = opts.addBefore && map.getLayer(opts.addBefore) ? opts.addBefore : undefined;
+        try {
+          map.moveLayer(lyrId, before);
+          log('label layer re-ordered above APEX layer (after region refresh)');
+        } catch (e) {
+          opts.debug && log('moveLayer failed:', e);
+        }
+      }
+    }
+
     // -- Update / Schedule ---------------------------------------------------
     function update() {
       if (destroyed) return;
+      // Direkt nach einem Region-Refresh existiert der APEX-Layer u.U.
+      // gerade nicht (wird neu aufgebaut). Dann alte Labels stehen lassen
+      // statt leer zu rendern – das nächste idle-Event rendert nach.
+      if (!ensureApexLayer()) { log('APEX layer not available – skipping update'); return; }
+      // Reihenfolge VOR der Signatur-Prüfung reparieren: ein Refresh ohne
+      // Datenänderung ändert die Signatur nicht, kann die Reihenfolge aber
+      // trotzdem zerstört haben.
+      ensureLayerOrder();
       const fc = buildFC();
 
-      // Change-Detection über ALLE Labels + Koordinaten. Ein Sample (erstes/
+      // Change-Detection über ALLE Properties + Geometrien. Ein Sample (erstes/
       // mittleres/letztes Label) würde Änderungen in der Mitte oder reine
       // Positions-Updates (bewegte Features) verschlucken. String-Konkat über
       // ein paar tausend Features liegt im Sub-Millisekunden-Bereich.
       let sig = fc.features.length + ':';
       for (const f of fc.features) {
-        const c = f.geometry.coordinates;
-        // stringify escapt Sonderzeichen im Label → keine Trenner-Kollisionen
-        sig += JSON.stringify(f.properties.label) + c[0] + ',' + c[1] + ';';
+        const g = f.geometry;
+        const c = g.coordinates;
+        // stringify deckt auch properties()-Zusatzdaten ab und escapt
+        // Sonderzeichen → keine Trenner-Kollisionen
+        sig += JSON.stringify(f.properties);
+        sig += g.type === 'Point'
+          ? c[0] + ',' + c[1] + ';'
+          // Linien/Polygone: Typ + Segmentzahl + erste/letzte Stützpunkte
+          // (Array-Koercion "x,y" ist deterministisch, volle Tiefe unnötig)
+          : g.type + ':' + c.length + ':' + c[0] + ':' + c[c.length - 1] + ';';
       }
       if (sig === lastSig && map.getSource(srcId)) return;
       lastSig    = sig;
@@ -863,6 +1028,7 @@
           map.setLayoutProperty(lyrId, 'text-letter-spacing',   opts.letterSpacing);
           map.setLayoutProperty(lyrId, 'text-rotate',           opts.rotate);
           map.setLayoutProperty(lyrId, 'text-transform',        opts.textTransform);
+          map.setLayoutProperty(lyrId, 'symbol-placement',      opts.placement);
           map.setLayoutProperty(lyrId, 'symbol-sort-key',       opts.sortKey ? ['-', 0, ['get', 'sk']] : undefined);
           map.setLayerZoomRange(lyrId, opts.minZoom, opts.maxZoom);
 
@@ -902,9 +1068,42 @@
   }
 
   // ==========================================================================
+  // Workaround für einen APEX-26.1-Bug: Bei aktiviertem Point Clustering
+  // übergibt das APEX-Map-Widget sein Cluster-Konfigobjekt unverändert als
+  // `cluster`-Property der GeoJSON-Source. Die von APEX 26.1 gebündelte
+  // MapLibre-Version validiert strikt ("cluster: boolean expected, object
+  // found"), addSource schlägt fehl und der KOMPLETTE Layer fehlt auf der
+  // Karte (auch die nicht geclusterten Punkte).
+  //
+  // Dieser Helper patcht map.addSource so, dass ein Objekt in `cluster` zu
+  // `cluster: true` (+ übernommenem clusterRadius) korrigiert wird. Nach dem
+  // Patch die Region einmal refreshen, damit APEX den Layer erneut anlegt:
+  //
+  //   const map = apex.region('MY_MAP').call('getMapObject');
+  //   apexMapLabel.fixApexClusterSource(map);
+  //   apex.region('MY_MAP').refresh();
+  //   apexMapLabel({ regionId: 'MY_MAP', ..., clusterLabel: true });
+  // ==========================================================================
+  apexMapLabel.fixApexClusterSource = function (map) {
+    if (!map || map.__apxlblClusterFix) return map;
+    const origAddSource = map.addSource.bind(map);
+    map.addSource = function (id, def) {
+      if (def && typeof def.cluster === 'object' && def.cluster !== null) {
+        def = Object.assign({}, def, {
+          cluster:       true,
+          clusterRadius: Number(def.cluster.clusterRadius) > 0 ? Number(def.cluster.clusterRadius) : 80
+        });
+      }
+      return origAddSource(id, def);
+    };
+    map.__apxlblClusterFix = true;
+    return map;
+  };
+
+  // ==========================================================================
   // Export
   // ==========================================================================
-  apexMapLabel.VERSION  = '2.2.0';
+  apexMapLabel.VERSION  = '2.3.0';
   apexMapLabel.DEFAULTS = DEFAULTS;
 
   global.apexMapLabel = apexMapLabel;

@@ -2,7 +2,7 @@
 
 > Always-on Beschriftungen für Oracle APEX Map Regions – performant, flexibel, ein-Datei-Library.
 
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](./CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![APEX](https://img.shields.io/badge/APEX-21.2%2B-orange.svg)]()
 
@@ -261,12 +261,20 @@ Hauptfunktion. Gibt ein Controller-Objekt zurück.
 | `source` | `string` | `null` | `'tooltip'` oder `'infoWindow'` – nutzt den gerenderten Volltext |
 | `format` | `function` | `null` | `(cols, feature) => string` – volle Kontrolle |
 
+##### Cluster & Zusatz-Daten
+
+| Option | Typ | Default | Beschreibung |
+|---|---|---|---|
+| `clusterLabel` | `boolean` \| `function` | `false` | `true`: Punktanzahl auf Clustern anzeigen; Funktion `(feature) => string` für eigenes Format |
+| `properties` | `function` | `null` | `(feature) => object` – Zusatz-Properties je Label für data-driven Expressions (siehe [Rezepte](#rezepte)) |
+
 ##### Positionierung (einfach)
 
 | Option | Typ | Default | Beschreibung |
 |---|---|---|---|
 | `position` | `string` | `'top'` | `'top'` \| `'bottom'` \| `'left'` \| `'right'` \| `'center'` |
 | `offsetPx` | `number` | `16` | Abstand zum Punkt in Pixeln |
+| `placement` | `string` | `'point'` | `'point'` \| `'line'` \| `'line-center'` – bei `'line*'` folgt das Label dem Linien-/Umriss-Verlauf (`position`/`offsetPx` wirken dann nicht) |
 
 ##### Positionierung (Profi, überschreibt obiges)
 
@@ -327,6 +335,7 @@ Hauptfunktion. Gibt ein Controller-Objekt zurück.
 |---|---|---|---|
 | `hideTooltip` | `boolean` | `false` | APEX-Tooltip dieser Region per CSS ausblenden |
 | `hideInfoWindow` | `boolean` | `false` | InfoWindow-Popup dieser Region ausblenden |
+| `autoRefresh` | `boolean` | `true` | Bei „After Refresh" der Region automatisch neu labeln (lauscht auf `apexafterrefresh`) |
 
 ##### Timing & Debug
 
@@ -420,6 +429,74 @@ apexMapLabel({
 });
 ```
 
+### Cluster mit Anzahl beschriften
+
+Wenn im APEX-Layer Clustering aktiv ist. **Achtung, APEX-26.1-Bug:** Layer mit
+aktiviertem Point Clustering werden gar nicht erst gerendert (MapLibre lehnt die
+Source ab: `cluster: boolean expected, object found`). Workaround der Library nutzen:
+
+```javascript
+// In der "Map Initialized"-DA, VOR apexMapLabel(...):
+(function armFix() {
+  var r = apex.region('MY_MAP'), m = null;
+  try { m = r && r.call('getMapObject'); } catch (e) {}
+  if (!m) { setTimeout(armFix, 100); return; }
+  apexMapLabel.fixApexClusterSource(m);  // addSource-Patch
+  r.refresh();                           // Layer neu anlegen lassen
+})();
+```
+
+Dann normal initialisieren:
+
+```javascript
+apexMapLabel({
+  regionId: 'MY_MAP', layerName: 'Stations', column: 'NAME',
+  clusterLabel: true,              // zeigt point_count auf Clustern
+  position: 'center'               // Anzahl mittig aufs Cluster-Symbol
+});
+
+// Oder mit eigenem Format:
+apexMapLabel({
+  regionId: 'MY_MAP', layerName: 'Stations', column: 'NAME',
+  clusterLabel: (f) => f.properties.point_count + ' Standorte'
+});
+```
+
+### Labelfarbe je Feature (data-driven)
+
+`properties` kopiert Werte in die Label-Features, auf die Mapbox-Expressions
+dann zugreifen können:
+
+```javascript
+apexMapLabel({
+  regionId: 'MY_MAP', layerName: 'Stations', column: 'NAME',
+  properties: (f) => ({
+    status: JSON.parse(f.properties.tooltip).columns.STATUS
+  }),
+  textColor: ['match', ['get', 'status'],
+    'INACTIVE', '#dc2626',        // rot
+    '#1f2937'                     // default
+  ]
+});
+```
+
+### Linien beschriften (Trassen, Routen, Kabel)
+
+Bei Linien-Layern folgt das Label dem Verlauf statt am Mittelpunkt zu kleben:
+
+```javascript
+apexMapLabel({
+  regionId: 'MY_MAP', layerName: 'Routes', column: 'ROUTE_NAME',
+  placement: 'line',        // Label wiederholt sich entlang der Linie
+  // placement: 'line-center' → genau ein Label in der Linienmitte
+  textSize: 12
+});
+```
+
+Funktioniert auch mit Polygon-Umrissen. `position`/`offsetPx` wirken bei
+Linien-Placement nicht; Punkt-Features im selben Layer werden bei `'line*'`
+nicht gelabelt.
+
 ### Klick aufs Label → APEX-Seite öffnen
 
 ```javascript
@@ -458,13 +535,13 @@ window.stationLabels.setOptions({
 
 ### Refresh nach Region-Reload
 
-Falls du die Map-Region per DA „Refresh"-st (z. B. nach Filter-Änderung):
-
-- **DA Event:** `After Refresh`
-- **Region:** deine Map
-- **Action:** `Execute JavaScript Code`
+Passiert seit v2.3.0 **automatisch** (`autoRefresh: true` ist Default) – die Library
+lauscht auf das `apexafterrefresh`-Event der Region. Wer das manuell steuern will:
 
 ```javascript
+apexMapLabel({ ..., autoRefresh: false });
+
+// dann selbst in einer After-Refresh-DA:
 window.stationLabels && window.stationLabels.refresh();
 ```
 
@@ -564,6 +641,21 @@ apexMapLabel({
 ```
 
 Vorsicht: Bei dichten Datasets wird's dann sehr voll.
+
+### Cluster-Layer erscheint überhaupt nicht (keine Marker, keine Labels)
+
+Bug in APEX 26.1: Bei aktiviertem Point Clustering übergibt das Map-Widget sein
+Cluster-Konfigobjekt als `cluster`-Property der GeoJSON-Source; MapLibre validiert
+strikt und lehnt die Source ab (`cluster: boolean expected, object found` in der
+Console) – der komplette Layer fehlt, auch die nicht geclusterten Punkte.
+Lösung: `apexMapLabel.fixApexClusterSource(map)` + Region-Refresh, siehe
+[Rezepte → Cluster](#cluster-mit-anzahl-beschriften).
+
+### Linien-Labels erscheinen nicht
+
+Line-Labels rendern nur, wenn der Text auf das sichtbare Linienstück passt. Bei
+kleinem Zoom (Linie nur wenige Pixel) blendet MapLibre sie aus – reinzoomen oder
+`textSize` verkleinern. `position`/`offsetPx` wirken bei `placement: 'line'` nicht.
 
 ### „Layer is already in style" Fehler bei Hot-Reload
 
