@@ -1,6 +1,6 @@
 {
   "name": "apex-map-label",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Always-on Labels for Oracle APEX Map Regions. Performant native symbol-layer rendering, compatible with Mapbox GL JS and MapLibre GL JS.",
   "main": "src/apex_map_label.js",
   "files": [
@@ -24,6 +24,7 @@
     "node": ">=14"
   },
   "scripts": {
-    "test": "echo 'Manual testing in APEX. See README.md → Tutorial.'"
+    "test": "node --check src/apex_map_label.js && echo 'Syntax OK. Functional testing in APEX. See README.md → Tutorial.'",
+    "sync:demo": "node -e \"require('fs').copyFileSync('src/apex_map_label.js','demo/apex-app/shared-components/static-files/apex_map_label.js'); console.log('demo copy synced')\""
   }
 }

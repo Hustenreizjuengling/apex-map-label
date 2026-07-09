@@ -1,5 +1,5 @@
 /**
- * apex_map_label.js  ·  v2.1
+ * apex_map_label.js  ·  v2.2
  * --------------------------------------------------------------------------
  * Always-on, performante Beschriftungen für Oracle APEX Map Regions.
  *
@@ -132,9 +132,11 @@
   function stripHtml(html) {
     if (html == null) return '';
     if (typeof html !== 'string') return String(html);
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return (tmp.textContent || tmp.innerText || '').trim();
+    // DOMParser erzeugt ein inertes Dokument: keine Script-Ausführung,
+    // keine Ressourcen-Loads (innerHTML auf einem div würde z.B.
+    // <img onerror=...> aus DB-Daten ausführen).
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return (doc.body.textContent || '').trim();
   }
 
   function parseMaybeJSON(v) {
@@ -224,10 +226,6 @@
   // Position → Anchor + Offset (Pixel → em umrechnen)
   // ==========================================================================
   function computePositioning(opts) {
-    // Manuelle Werte haben Vorrang
-    const hasManual = opts.anchor != null && opts.offset != null;
-    if (hasManual) return { anchor: opts.anchor, offset: opts.offset };
-
     // Wenn zoomBasedSize aktiv: Mittelwert für statische Offset-Berechnung.
     // (Eine zoom-abhängige Offset-Expression wäre korrekter, aber komplexer
     //  und Mapbox bricht sie für text-offset nicht überall – Trade-off.)
@@ -240,13 +238,21 @@
 
     const pos = VALID_POSITIONS.indexOf(opts.position) >= 0 ? opts.position : 'top';
 
+    let auto;
     switch (pos) {
-      case 'top':    return { anchor: 'bottom', offset: [0, -dist] };
-      case 'bottom': return { anchor: 'top',    offset: [0,  dist] };
-      case 'left':   return { anchor: 'right',  offset: [-dist, 0] };
-      case 'right':  return { anchor: 'left',   offset: [ dist, 0] };
-      case 'center': return { anchor: 'center', offset: [0, 0] };
+      case 'bottom': auto = { anchor: 'top',    offset: [0,  dist] }; break;
+      case 'left':   auto = { anchor: 'right',  offset: [-dist, 0] }; break;
+      case 'right':  auto = { anchor: 'left',   offset: [ dist, 0] }; break;
+      case 'center': auto = { anchor: 'center', offset: [0, 0] };     break;
+      default:       auto = { anchor: 'bottom', offset: [0, -dist] };
     }
+
+    // Manuelle Overrides gelten unabhängig voneinander – ein einzelnes
+    // anchor (ohne offset) wird nicht mehr stillschweigend ignoriert.
+    return {
+      anchor: opts.anchor != null ? opts.anchor : auto.anchor,
+      offset: opts.offset != null ? opts.offset : auto.offset
+    };
   }
 
   // ==========================================================================
@@ -392,15 +398,17 @@
     const rule = (selectors) =>
       `${scope.split(',').map(s => selectors.map(c => `${s.trim()} ${c}`).join(',')).join(',')} { display: none !important; }`;
 
+    // Tooltip UND InfoWindow rendern beide als Mapbox/MapLibre-Popup.
+    // ".maplibregl-popup" pauschal auszublenden würde daher bei
+    // hideTooltip:true + hideInfoWindow:false auch das InfoWindow killen –
+    // deshalb wird über :has(.infoWindow) unterschieden (APEX setzt die
+    // Klasse "infoWindow" im Popup-Inhalt).
     const rules = [];
-    if (opts.hideTooltip) {
-      // Sämtliche Popup-Varianten von Mapbox/MapLibre – alle Anchor-Klassen
+    if (opts.hideTooltip && opts.hideInfoWindow) {
       rules.push(rule(['.maplibregl-popup', '.mapboxgl-popup']));
-    }
-    if (opts.hideInfoWindow) {
-      // APEX nutzt die Klasse "infoWindow" innerhalb des Popups.
-      // Wir nehmen das Elternelement, falls :has() supportet wird, sonst nur das Kind.
-      rules.push(rule(['.maplibregl-popup .infoWindow', '.mapboxgl-popup .infoWindow']));
+    } else if (opts.hideTooltip) {
+      rules.push(rule(['.maplibregl-popup:not(:has(.infoWindow))', '.mapboxgl-popup:not(:has(.infoWindow))']));
+    } else if (opts.hideInfoWindow) {
       rules.push(rule(['.maplibregl-popup:has(.infoWindow)', '.mapboxgl-popup:has(.infoWindow)']));
     }
 
@@ -431,6 +439,13 @@
     if (opts.maxLabels != null && (typeof opts.maxLabels !== 'number' || opts.maxLabels < 1)) {
       warn('maxLabels must be a positive number – ignoring');
       opts.maxLabels = null;
+    }
+    // minZoom < maxZoom ist Pflicht – gleiche Werte würden z.B. eine
+    // interpolate-Expression mit doppelten Stops erzeugen (Expression-Fehler).
+    if (!(typeof opts.minZoom === 'number' && typeof opts.maxZoom === 'number' && opts.minZoom < opts.maxZoom)) {
+      warn(`invalid zoom range [${opts.minZoom}, ${opts.maxZoom}] – minZoom must be < maxZoom, using 0/24`);
+      opts.minZoom = 0;
+      opts.maxZoom = 24;
     }
     return opts;
   }
@@ -502,7 +517,7 @@
 
       log('map + layer ready:', opts.layerName, '→', res.layerId);
       inner = initLabelLayer({
-        region, map: res.map, opts, log, layerId: res.layerId, cssEl
+        map: res.map, opts, log, layerId: res.layerId, cssEl, instanceId
       });
 
       // Aufgestaute Calls nachholen
@@ -536,7 +551,8 @@
   // Eigentliche Label-Layer-Initialisierung
   // ==========================================================================
   function initLabelLayer(ctx) {
-    const { region, map, opts, log, layerId, cssEl } = ctx;
+    const { map, opts, log, layerId, instanceId } = ctx;
+    let cssEl = ctx.cssEl;   // kann bei setOptions() neu injiziert werden
 
     const apexLayer    = map.getLayer(layerId);
     const apexSourceId = apexLayer ? apexLayer.source         : null;
@@ -597,7 +613,12 @@
 
     // -- Features sammeln ----------------------------------------------------
     function collectFeatures() {
-      // Bevorzugt: querySourceFeatures (liefert ALLE, nicht nur sichtbare)
+      // Bevorzugt: querySourceFeatures. Liefert alle Features der aktuell
+      // GELADENEN Tiles (Viewport + Puffer) – auch von Symbol-Placement
+      // verdeckte, aber NICHT solche weit außerhalb des Ausschnitts. Da bei
+      // jedem "idle" (nach Pan/Zoom) neu gerendert wird, ist das in der Praxis
+      // vollständig. Achtung: dieselben Features können pro Tile mehrfach
+      // kommen (mit tile-quantisierten Koordinaten) → Dedup in buildFC().
       let src = [];
       try {
         if (apexSourceId) src = map.querySourceFeatures(apexSourceId) || [];
@@ -623,7 +644,7 @@
       if (!g) return 'g:none';
       if (g.type === 'Point') {
         const c = g.coordinates;
-        return 'p:' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + c[0] + ',' + c[1];
+        return 'p:' + c[0] + ',' + c[1];
       }
       // Polygons/Lines: erstes & letztes Koord-Paar reicht praktisch
       const flat = [];
@@ -647,10 +668,8 @@
         if (seen.has(key)) continue;
         seen.add(key);
 
-        let text = deriveLabel(f, opts, opts.debug ? log : null);
+        const text = deriveLabel(f, opts, opts.debug ? log : null);
         if (text == null || text === '') continue;
-        if (opts.textTransform === 'uppercase') text = text.toUpperCase();
-        else if (opts.textTransform === 'lowercase') text = text.toLowerCase();
 
         const c = centroid(f.geometry);
         if (!c) continue;
@@ -698,7 +717,10 @@
         'text-max-width':        opts.maxWidth,
         'text-padding':          opts.padding,
         'text-letter-spacing':   opts.letterSpacing,
-        'text-rotate':           opts.rotate
+        'text-rotate':           opts.rotate,
+        // natives Mapbox/MapLibre-Property statt JS-Transformation –
+        // dadurch auch via setLayoutProperty live umschaltbar
+        'text-transform':        opts.textTransform
       };
 
       if (opts.sortKey) {
@@ -741,25 +763,24 @@
         paint:   buildPaint()
       }, opts.addBefore || undefined);
 
-      // Click/Hover-Interaktion
-      const wantsInteraction = typeof opts.onClick === 'function' || opts.clickToZoom;
-      if (wantsInteraction) {
-        on(map, 'click', lyrId, (e) => {
-          if (!e.features || !e.features[0]) return;
-          const feat = e.features[0];
-          if (opts.clickToZoom) {
-            map.flyTo({
-              center: feat.geometry.coordinates,
-              zoom:   Math.max(map.getZoom(), 12)
-            });
-          }
-          if (typeof opts.onClick === 'function') {
-            try { opts.onClick(feat, e); } catch (err) { error('onClick threw:', err); }
-          }
-        });
-        on(map, 'mouseenter', lyrId, () => { map.getCanvas().style.cursor = opts.cursor; });
-        on(map, 'mouseleave', lyrId, () => { map.getCanvas().style.cursor = ''; });
-      }
+      // Click/Hover-Interaktion: immer binden, zur Laufzeit prüfen – so
+      // wirken onClick/clickToZoom auch, wenn sie erst per setOptions() kommen.
+      const interactive = () => typeof opts.onClick === 'function' || opts.clickToZoom;
+      on(map, 'click', lyrId, (e) => {
+        if (!interactive() || !e.features || !e.features[0]) return;
+        const feat = e.features[0];
+        if (opts.clickToZoom) {
+          map.flyTo({
+            center: feat.geometry.coordinates,
+            zoom:   Math.max(map.getZoom(), 12)
+          });
+        }
+        if (typeof opts.onClick === 'function') {
+          try { opts.onClick(feat, e); } catch (err) { error('onClick threw:', err); }
+        }
+      });
+      on(map, 'mouseenter', lyrId, () => { if (interactive()) map.getCanvas().style.cursor = opts.cursor; });
+      on(map, 'mouseleave', lyrId, () => { map.getCanvas().style.cursor = ''; });
     }
 
     // -- Update / Schedule ---------------------------------------------------
@@ -767,13 +788,16 @@
       if (destroyed) return;
       const fc = buildFC();
 
-      // Cheap Change-Detection (Anzahl + erste/letzte/mittlere Labels)
-      const sample = fc.features.length > 0
-        ? fc.features[0].properties.label + '|' +
-          (fc.features[Math.floor(fc.features.length / 2)] || {}).properties?.label + '|' +
-          (fc.features[fc.features.length - 1] || {}).properties?.label
-        : '';
-      const sig = fc.features.length + ':' + sample;
+      // Change-Detection über ALLE Labels + Koordinaten. Ein Sample (erstes/
+      // mittleres/letztes Label) würde Änderungen in der Mitte oder reine
+      // Positions-Updates (bewegte Features) verschlucken. String-Konkat über
+      // ein paar tausend Features liegt im Sub-Millisekunden-Bereich.
+      let sig = fc.features.length + ':';
+      for (const f of fc.features) {
+        const c = f.geometry.coordinates;
+        // stringify escapt Sonderzeichen im Label → keine Trenner-Kollisionen
+        sig += JSON.stringify(f.properties.label) + c[0] + ',' + c[1] + ';';
+      }
       if (sig === lastSig && map.getSource(srcId)) return;
       lastSig    = sig;
       labelCount = fc.features.length;
@@ -838,7 +862,20 @@
           map.setLayoutProperty(lyrId, 'text-padding',          opts.padding);
           map.setLayoutProperty(lyrId, 'text-letter-spacing',   opts.letterSpacing);
           map.setLayoutProperty(lyrId, 'text-rotate',           opts.rotate);
+          map.setLayoutProperty(lyrId, 'text-transform',        opts.textTransform);
+          map.setLayoutProperty(lyrId, 'symbol-sort-key',       opts.sortKey ? ['-', 0, ['get', 'sk']] : undefined);
+          map.setLayerZoomRange(lyrId, opts.minZoom, opts.maxZoom);
+
+          const font = opts.font || detectStyleFont();
+          if (font) map.setLayoutProperty(lyrId, 'text-font', font);
         }
+
+        // CSS neu injizieren, falls hideTooltip/hideInfoWindow geändert wurden
+        if (newOpts && ('hideTooltip' in newOpts || 'hideInfoWindow' in newOpts)) {
+          if (cssEl && cssEl.parentNode) cssEl.parentNode.removeChild(cssEl);
+          cssEl = injectScopedCSS(opts.regionId, instanceId, opts);
+        }
+
         lastSig = '';
         schedule();
       },
@@ -867,7 +904,7 @@
   // ==========================================================================
   // Export
   // ==========================================================================
-  apexMapLabel.VERSION  = '2.1.0';
+  apexMapLabel.VERSION  = '2.2.0';
   apexMapLabel.DEFAULTS = DEFAULTS;
 
   global.apexMapLabel = apexMapLabel;

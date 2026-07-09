@@ -4,6 +4,39 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/)
 und folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.2.0] – 2026-07-09
+
+### Sicherheit
+- **`stripHtml()` nutzt jetzt `DOMParser` statt `innerHTML`**: Das bisherige Parsen über ein
+  detached `<div>` führte Event-Handler wie `<img onerror=...>` aus Tooltip-/InfoWindow-Inhalten
+  aus (potenzielles XSS über DB-Daten). `DOMParser` erzeugt ein inertes Dokument – nichts wird
+  geladen oder ausgeführt.
+
+### Behoben
+- **`hideTooltip: true` blendete auch das InfoWindow aus**: Beide rendern als
+  Mapbox/MapLibre-Popup; die pauschale Popup-Regel traf beides. Die CSS-Regeln unterscheiden
+  jetzt über `:has(.infoWindow)`, sodass `hideTooltip: true, hideInfoWindow: false` (wie in
+  `examples/advanced.js`) korrekt nur den Tooltip versteckt.
+- **Change-Detection verschluckte Updates**: Die 3-Punkt-Sample-Signatur (erstes/mittleres/
+  letztes Label) übersah geänderte Labels in der Mitte sowie reine Positions-Änderungen
+  (bewegte Features). Die Signatur umfasst jetzt alle Labels + Koordinaten.
+- **`anchor` ohne `offset` wurde stillschweigend ignoriert**: Manuelle `anchor`/`offset`-Overrides
+  gelten jetzt unabhängig voneinander.
+- **`minZoom`/`maxZoom` werden validiert**: `minZoom >= maxZoom` erzeugte mit `zoomBasedSize`
+  eine ungültige interpolate-Expression; jetzt Warning + Fallback auf 0/24.
+
+### Geändert
+- **`textTransform` nutzt das native `text-transform`-Layout-Property** statt der
+  JS-Transformation – dadurch auch live per `setOptions()` umschaltbar.
+- **`setOptions()` deckt jetzt alle Optionen live ab**: zusätzlich `minZoom`/`maxZoom`
+  (`setLayerZoomRange`), `font`, `sortKey` (`symbol-sort-key`), `textTransform`,
+  `hideTooltip`/`hideInfoWindow` (CSS-Reinjektion) sowie nachträglich gesetzte
+  `onClick`/`clickToZoom`-Handler (Interaktion wird jetzt immer gebunden und zur Laufzeit geprüft).
+- Doku präzisiert: `querySourceFeatures()` liefert Features der **geladenen Tiles**
+  (Viewport + Puffer), nicht global alle – `maxLabels`/`sortKey` ist damit Top-N im aktuellen
+  Kartenausschnitt.
+- `npm run sync:demo` kopiert die Library in die Demo-App; `npm test` prüft die Syntax.
+
 ## [2.1.0] – 2026-05-25
 
 ### Geändert

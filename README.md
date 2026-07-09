@@ -2,7 +2,7 @@
 
 > Always-on Beschriftungen für Oracle APEX Map Regions – performant, flexibel, ein-Datei-Library.
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](./CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![APEX](https://img.shields.io/badge/APEX-21.2%2B-orange.svg)]()
 
@@ -303,7 +303,7 @@ Hauptfunktion. Gibt ein Controller-Objekt zurück.
 | `ignorePlacement` | `boolean` | `false` | Andere Labels ignorieren beim Platzieren |
 | `textOptional` | `boolean` | `true` | Label weglassen wenn Platz fehlt |
 | `sortKey` | `function` | `null` | `(feature) => number` – höhere Werte priorisiert |
-| `maxLabels` | `number` | `null` | Hartes Limit (mit `sortKey` kombinieren!) |
+| `maxLabels` | `number` | `null` | Hartes Limit, Top-N **im aktuellen Kartenausschnitt** (mit `sortKey` kombinieren!) |
 | `filter` | `function` | `null` | `(feature) => boolean` |
 
 ##### Layer-Reihenfolge
@@ -341,7 +341,8 @@ Hauptfunktion. Gibt ein Controller-Objekt zurück.
 const ctrl = apexMapLabel({...});
 
 ctrl.refresh()         // Labels neu aufbauen (z. B. nach Region-Refresh)
-ctrl.setOptions(o)     // Live-Update; Style-Props werden hot-reloaded
+ctrl.setOptions(o)     // Live-Update; alle Optionen werden hot-reloaded
+                       // (Style, Zoom-Range, Font, sortKey, Interaktion, CSS)
 ctrl.getLabelCount()   // Aktuelle Anzahl gerenderter Labels (number)
 ctrl.getLayerId()      // Interne Symbol-Layer-ID (string)
 ctrl.getSourceId()     // Interne GeoJSON-Source-ID (string)
@@ -352,7 +353,7 @@ ctrl.destroy()         // Komplettes Cleanup
 #### Globale Properties
 
 ```javascript
-apexMapLabel.VERSION    // '2.0.0'
+apexMapLabel.VERSION    // z. B. '2.2.0'
 apexMapLabel.DEFAULTS   // alle Default-Werte (read-only)
 ```
 
@@ -478,14 +479,15 @@ window.poiLabels  = apexMapLabel({
 });
 ```
 
-### Cleanup beim Verlassen der Seite
+### Cleanup
 
-In den Page Properties → JavaScript → Execute when Page Loads:
+Beim Verlassen der Seite ist **kein** manuelles Cleanup nötig – der Browser räumt
+Map, Layer und Listener mit der Seite ab. `destroy()` braucht man nur, wenn die
+Labels **innerhalb** der Seite verschwinden sollen (z. B. per Button oder bevor
+dieselbe Region mit anderer Konfiguration neu initialisiert wird):
 
 ```javascript
-window.addEventListener('beforeunload', () => {
-  window.stationLabels && window.stationLabels.destroy();
-});
+window.stationLabels && window.stationLabels.destroy();
 ```
 
 ---
@@ -584,7 +586,9 @@ In APEX Builder: nach JavaScript-Änderungen einmal `F5` machen, nicht nur die R
 - rAF-Debounce: niemals mehr als ein Update pro Frame
 - Change-Detection: bei identischen Daten kein erneutes `setData`
 - Cached Font-Detection
-- `querySourceFeatures` statt `queryRenderedFeatures` (alle Punkte, nicht nur sichtbar)
+- `querySourceFeatures` statt `queryRenderedFeatures` – liefert alle Features der
+  geladenen Tiles (Viewport + Puffer), auch vom Symbol-Placement verdeckte; bei
+  Pan/Zoom wird über das `idle`-Event automatisch nachgezogen
 - Event-getriebenes Warten mit Stall-Timeout: Regionen, deren Layer erst nach Sekunden langen Daten-Ladens erscheint, werden ausgesessen statt vorzeitig abgebrochen – `waitTimeoutMs` zählt nur Inaktivität, nicht Gesamtdauer.
 
 ---
@@ -595,8 +599,8 @@ In APEX Builder: nach JavaScript-Änderungen einmal `F5` machen, nicht nur die R
 |---|---|---|
 | 21.2 – 21.2.x | Mapbox GL JS | ✅ Getestet |
 | 22.1 – 22.2.x | MapLibre GL JS | ✅ Getestet |
-| 23.x | MapLibre GL JS | ✅ Erwartet kompatibel |
-| 24.x | MapLibre GL JS | ✅ Erwartet kompatibel |
+| 23.x – 25.x | MapLibre GL JS | ✅ Erwartet kompatibel |
+| 26.1 | MapLibre GL JS | ✅ Getestet (Demo-App in diesem Repo) |
 
 **Browser:** Alle modernen Browser (Chrome, Firefox, Safari, Edge). IE11 wird nicht unterstützt.
 
@@ -615,11 +619,14 @@ apex-map-label/
 ├── LICENSE                # MIT
 ├── .gitignore
 ├── src/
-│   └── apex_map_label.js  # Die Library (~800 Zeilen)
-└── examples/              # Code-Snippets aus den Rezepten
-    ├── basic.js
-    ├── multi-layer.js
-    └── advanced.js
+│   └── apex_map_label.js  # Die Library (~900 Zeilen)
+├── examples/              # Code-Snippets aus den Rezepten
+│   ├── basic.js
+│   ├── multi-layer.js
+│   └── advanced.js
+└── demo/                  # APEX-26.1-Demo-App (APEXLang) inkl. Library-Kopie
+    ├── apex-app/          #   `npm run sync:demo` hält die Kopie aktuell
+    └── deploy.sql         #   validate/import via SQLcl
 ```
 
 ### Modul-Aufbau
@@ -675,9 +682,9 @@ PRs willkommen! Beim Beitragen bitte:
 Da das Tool in einer APEX-Umgebung läuft, gibt es keinen klassischen Dev-Server. Workflow:
 
 1. Code in `src/apex_map_label.js` ändern
-2. Datei als Static File in APEX neu hochladen (oder über CDN)
-3. Seite mit `Cmd/Ctrl+Shift+R` neu laden
-4. Browser-Console im Auge behalten
+2. `npm test` (Syntax-Check) und `npm run sync:demo` (Kopie in der Demo-App aktualisieren)
+3. Datei als Static File in APEX neu hochladen (oder Demo-App via `demo/deploy.sql` importieren)
+4. Seite mit `Cmd/Ctrl+Shift+R` neu laden, Browser-Console im Auge behalten
 
 ### Ideen für Verbesserungen
 
